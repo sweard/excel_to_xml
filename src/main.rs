@@ -61,7 +61,7 @@ fn main() {
 
 /// 提示用户输入并返回去除多余字符的字符串
 fn prompt_user_input(prompt: &str) -> String {
-    print!("{}", prompt);
+    println!("{}", prompt);
     io::stdout().flush().expect("无法刷新标准输出");
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("读取输入时出错");
