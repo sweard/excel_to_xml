@@ -43,7 +43,7 @@ fn main() {
         println!("找到res文件夹: {}", res_folder);
         let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
 
-        match read_excel::parse_cfc_with_excel(&excel_path, cfg_json.as_str()) {
+        match read_excel::parse_cfg_with_excel(&excel_path, cfg_json.as_str()) {
             Ok(parsed_cfg) => {
                 println!("解析配置成功: {:?}", parsed_cfg);
                 if let Err(e) = write_xml::write_xml(&excel_path, &parsed_cfg, &paths) {
