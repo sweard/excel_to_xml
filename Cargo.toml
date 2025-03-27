@@ -1,0 +1,13 @@
+[package]
+name = "parseExcel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Excel读取
+calamine = "0.26.1"
+# JSON解析
+# serde = "1.0.215"
+serde_json = "1.0.133"
+# xml读写
+quick-xml = "0.37.1"
