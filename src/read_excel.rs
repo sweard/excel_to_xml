@@ -43,7 +43,7 @@ pub fn parse_cfg_with_excel(
     // 打开Excel文件并获取工作表
     let (mut workbook, sheet_name) = open_excel_workbook(file_path)?;
 
-    // 获取工作表范围
+    // 获取工作表范围(内存占用较大，待优化)
     let range = workbook
         .worksheet_range(&sheet_name)
         .map_err(|e| ExcelError::InvalidExcelFormat(e.to_string()))?;
@@ -56,7 +56,6 @@ pub fn parse_cfg_with_excel(
 
     // 查找语言索引
     let lang_index_map = find_language_indices(&first_row, &input_cfg.lang_map.as_slice());
-
     // 构建解析后的配置
     Ok(ParsedCfg {
         sheet_name: input_cfg.sheet_name,
