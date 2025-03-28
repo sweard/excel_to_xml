@@ -22,22 +22,22 @@ pub fn write_xml(
     parsed_cfg: &ParsedCfg,
     paths: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // 打开Excel文件
-    let mut workbook: Xlsx<_> = open_workbook(file_path)?;
+    // // 打开Excel文件
+    // let workbook: &mut Xlsx<_> = &mut open_workbook(file_path)?;
 
-    // 获取sheet名称
-    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
-        workbook
-            .sheet_names()
-            .get(0)
-            .cloned()
-            .ok_or("No sheets found")?
-    } else {
-        parsed_cfg.sheet_name.clone()
-    };
+    // // 获取sheet名称
+    // let sheet_name = if parsed_cfg.sheet_name.is_empty() {
+    //     workbook
+    //         .sheet_names()
+    //         .get(0)
+    //         .cloned()
+    //         .ok_or("No sheets found")?
+    // } else {
+    //     parsed_cfg.sheet_name.clone()
+    // };
 
-    let range: calamine::Range<calamine::Data> = workbook.worksheet_range(&sheet_name)?;
-    let tag_index = parsed_cfg.tag_index as usize;
+    // let range: calamine::Range<calamine::Data> = workbook.worksheet_range(&sheet_name)?;
+    let tag_index = parsed_cfg.tag_index;
 
     // 遍历语言索引映射
     for (lang, index) in &parsed_cfg.lang_index_map {
@@ -55,11 +55,15 @@ pub fn write_xml(
         };
 
         // 构建标签值映射 - 优化：预分配容量
-        let lang_index = *index as usize;
-        let tag_value_map = process_excel_data(&range, tag_index, lang_index)?;
+        let lang_index = *index;
+        // let tag_value_map = process_excel_data(&range, tag_index as usize, lang_index as usize)?;
+
+        let tag_value_map = process_excel_data2(file_path, parsed_cfg, tag_index, lang_index)?;
 
         // 处理XML文件
         update_xml_file(path, &tag_value_map, parsed_cfg)?;
+
+        drop(tag_value_map); 
     }
 
     Ok(())
@@ -74,7 +78,6 @@ fn process_excel_data(
     // 根据Excel行数预分配合适的容量
     let estimated_capacity = range.rows().count().saturating_sub(1);
     let mut tag_value_map = HashMap::with_capacity(estimated_capacity);
-
     for row in range.rows().skip(1) {
         if let (Some(tag), Some(value)) = (row.get(tag_index), row.get(lang_index)) {
             if !tag.is_empty() {
@@ -85,7 +88,61 @@ fn process_excel_data(
             }
         }
     }
+    Ok(tag_value_map)
+}
 
+fn process_excel_data2(
+    file_path: &str,
+    parsed_cfg: &ParsedCfg,
+    tag_index: i32,
+    lang_index: i32,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+    // 根据Excel行数预分配合适的容量
+    let mut tag_value_map = HashMap::with_capacity(8000);
+    // 打开Excel文件
+    let workbook: &mut Xlsx<_> = &mut open_workbook(file_path)?;
+
+    // 获取sheet名称
+    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
+        workbook
+            .sheet_names()
+            .get(0)
+            .cloned()
+            .ok_or("No sheets found")?
+    } else {
+        parsed_cfg.sheet_name.clone()
+    };
+    let mut cell_reader = workbook.worksheet_cells_reader(&sheet_name)?;
+    let mut cur: (Option<u32>, Option<String>, Option<String>) = (None, None, None);
+    while let Some(cell) = cell_reader.next_cell()? {
+        let (row, col) = cell.get_position();
+        let i32_col = col as i32;
+         // 换行时重置cur,并将上一行的数据插入到map中
+         if let Some(_row) = cur.0 {
+            if row != _row {
+                if let (_,Some(tag), Some(value)) = cur {
+                    if !tag.is_empty() {
+                        tag_value_map.insert(
+                            tag.to_string().trim().to_string(),
+                            value.to_string().replace('\n', "\\n"),
+                        );
+                    }
+                }
+                cur = (None, None, None);
+            }
+        }
+
+        cur.0 = Some(row);
+        if row == 0 || (i32_col != tag_index && i32_col != lang_index) {
+            // 跳过第一行以及非标签和语言列
+            continue;
+        }
+        if i32_col == tag_index {
+            cur.1 = cell.get_value().as_string();
+        } else if i32_col == lang_index {
+            cur.2 = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
+        }
+    }
     Ok(tag_value_map)
 }
 
