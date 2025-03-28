@@ -1,5 +1,5 @@
 use crate::config::{InputCfg, ParsedCfg};
-use calamine::{open_workbook, Data, Reader, Xlsx};
+use calamine::{open_workbook, DataType, Reader, Xlsx};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -9,18 +9,18 @@ use std::io::BufReader;
 #[derive(Debug)]
 pub enum ExcelError {
     NoSheetsFound,
-    EmptySheet,
+    InvalidFirstLine,
     TagNotFound(String),
-    InvalidExcelFormat(String),
+    CellConversionFailed(String),
 }
 
 impl fmt::Display for ExcelError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExcelError::NoSheetsFound => write!(f, "未找到任何工作表"),
-            ExcelError::EmptySheet => write!(f, "工作表为空"),
+            ExcelError::InvalidFirstLine => write!(f, "工作表为空"),
             ExcelError::TagNotFound(tag) => write!(f, "未找到标签: {}", tag),
-            ExcelError::InvalidExcelFormat(msg) => write!(f, "Excel 格式错误: {}", msg),
+            ExcelError::CellConversionFailed(msg) => write!(f, "Excel 格式错误: {}", msg),
         }
     }
 }
@@ -43,13 +43,29 @@ pub fn parse_cfg_with_excel(
     // 打开Excel文件并获取工作表
     let (mut workbook, sheet_name) = open_excel_workbook(file_path)?;
 
-    // 获取工作表范围(内存占用较大，待优化)
-    let range = workbook
-        .worksheet_range(&sheet_name)
-        .map_err(|e| ExcelError::InvalidExcelFormat(e.to_string()))?;
-
-    // 解析表头行
-    let first_row = parse_header_row(&range)?;
+    // 获取cell_reader迭代器
+    let mut cell_reader = workbook.worksheet_cells_reader(&sheet_name)?;
+    
+     // 1. 读取表头行
+     let mut first_row:Vec<String> = Vec::new();
+     // 逐个单元格处理，直到找到第一行的所有单元格
+     while let Some(cell) = cell_reader.next_cell()? {
+         if cell.get_position().0 > 0 {
+             // 已经读取完第一行
+             break;
+         }
+          // 安全地转换单元格值为字符串
+        match cell.get_value().as_string() {
+            Some(value) => first_row.push(value),
+            None => return Err(Box::new(ExcelError::CellConversionFailed(
+                format!("无法将单元格 {:?} 转换为字符串", cell.get_position())
+            ))),
+        }
+     }
+     if first_row.is_empty() {
+         return Err(Box::new(ExcelError::InvalidFirstLine));
+     }
+     println!("header_cells: {:?}", first_row);
 
     // 查找标签索引
     let tag_index = find_tag_index(&first_row, &input_cfg.tag_name)?;
@@ -75,18 +91,6 @@ fn open_excel_workbook(file_path: &str) -> Result<(Xlsx<BufReader<File>>, String
         .cloned()
         .ok_or(ExcelError::NoSheetsFound)?;
     Ok((workbook, sheet_name))
-}
-
-/// 解析表头行
-fn parse_header_row(range: &calamine::Range<Data>) -> Result<Vec<String>, Box<dyn Error>> {
-    let first_row: Vec<String> = range
-        .rows()
-        .next()
-        .ok_or(ExcelError::EmptySheet)?
-        .iter()
-        .map(|cell| cell.to_string())
-        .collect();
-    Ok(first_row)
 }
 
 /// 查找标签索引

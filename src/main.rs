@@ -63,15 +63,17 @@ fn main() {
     };
 
     loop {
-        let input = prompt_user_input("请输入r以更新xml文件，q以退出:");
+        let input = prompt_user_input("r更新xml文件，q退出:");
         match input.as_str() {
             "r" => {
                 if let Err(e) = write_xml::write_xml(&excel_path, &parsed_cfg, &paths) {
-                    eprintln!("写入XML时出错: {:?}", e);
+                    println!("写入XML时出错: {:?}", e);
+                } else {
+                    println!("写入XML成功");
                 }
             }
             "q" => {
-                return;
+                break;
             }
             _ => {
                 println!("无效输入");
