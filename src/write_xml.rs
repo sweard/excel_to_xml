@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{remove_file, rename, File},
     io::{BufReader, BufWriter},
+    path,
 };
 
 use crate::config::ParsedCfg;
@@ -19,6 +20,19 @@ struct RowData {
     value: Option<String>,
 }
 
+#[derive(Default)]
+struct RowData2 {
+    row: Option<u32>,
+    tag: Option<String>,
+    value: Option<HashMap<u32, String>>,
+}
+
+#[derive(Default)]
+struct PathIndex {
+    path: String,
+    index: u32,
+}
+
 /**
  * 写入XML文件
  * @param file_path excel文件路径
@@ -31,10 +45,10 @@ pub fn write_xml(
     paths: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let tag_index = parsed_cfg.tag_index;
-    
+
     // 预先打开Excel文件，只打开一次
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
-    
+
     // 获取sheet名称（只需获取一次）
     let sheet_name = if parsed_cfg.sheet_name.is_empty() {
         workbook
@@ -47,8 +61,8 @@ pub fn write_xml(
     };
 
     // 预分配一个HashMap，循环内复用
-    let mut tag_value_map = HashMap::with_capacity(5000);
-
+    let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);
+    let mut path_index_vec: Vec<PathIndex> = Vec::with_capacity(paths.len());
     // 遍历语言索引映射
     for (lang, index) in &parsed_cfg.lang_index_map {
         let is_default_lang = lang == &parsed_cfg.default_lang;
@@ -63,17 +77,42 @@ pub fn write_xml(
             Some(path) => path,
             None => continue, // 没找到对应语言的文件，跳过这个语言
         };
-
+        let path_index = PathIndex {
+            path: path.to_string(),
+            index: *index,
+        };
+        path_index_vec.push(path_index);
         // 清空map，准备复用
-        tag_value_map.clear();
-        
-        // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
-        let lang_index = *index;
-        process_excel_data(&mut workbook, &sheet_name, tag_index, lang_index, &mut tag_value_map)?;
+        // tag_value_map.clear();
 
-        // 处理XML文件
-        update_xml_file(path, &tag_value_map, parsed_cfg)?;
+        // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
+        // let lang_index = *index;
+        // process_excel_data(&mut workbook, &sheet_name, tag_index, lang_index, &mut tag_value_map)?;
+
+        // // 处理XML文件
+        // update_xml_file(path, &tag_value_map, parsed_cfg)?;
     }
+    let lang_index_vec: Vec<u32> = path_index_vec.iter().map(|p| p.index).collect();
+
+    process_excel_data2(
+        &mut workbook,
+        &sheet_name,
+        tag_index,
+        lang_index_vec,
+        &mut tag_value_map,
+    )?;
+    println!("tag_value_map size: {}", tag_value_map.len());
+    path_index_vec.iter().for_each(|p| {
+        let index = p.index;
+        let path = &p.path;
+        let mut write_map: HashMap<String, String> = HashMap::new();
+        tag_value_map.iter().for_each(|(tag, map)| {
+            write_map.insert(tag.to_string(), map.get(&index).unwrap().to_string());
+        });
+        println!("write_map size: {}", write_map.len());
+        update_xml_file(path, &write_map, parsed_cfg).unwrap();
+    });
+
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
     Ok(())
@@ -89,21 +128,18 @@ fn process_excel_data(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
     let mut cur = RowData::default();
-    
+
     while let Some(cell) = cell_reader.next_cell()? {
         // 其余代码保持不变
         let (row, col) = cell.get_position();
-        
+
         // 换行时处理上一行数据
         if let Some(prev_row) = cur.row {
             if row != prev_row {
                 if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
                     let tag_trim = tag.trim();
                     if !tag_trim.is_empty() {
-                        tag_value_map.insert(
-                            tag_trim.to_string(),
-                            value.replace('\n', "\\n"),
-                        );
+                        tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
                     }
                 }
                 cur = RowData::default();
@@ -115,25 +151,88 @@ fn process_excel_data(
             // 跳过表头行和非相关列
             continue;
         }
-        
+
         if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if col == lang_index {
             cur.value = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
         }
     }
-    
+
     // 处理最后一行数据
     if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
         let tag_trim = tag.trim();
         if !tag_trim.is_empty() {
-            tag_value_map.insert(
-                tag_trim.to_string(),
-                value.replace('\n', "\\n"),
-            );
+            tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
         }
     }
-    
+
+    Ok(())
+}
+
+/// 一次解析所有语言
+fn process_excel_data2(
+    workbook: &mut Xlsx<BufReader<File>>,
+    sheet_name: &str,
+    tag_index: u32,
+    lang_index_vec: Vec<u32>,
+    tag_value_map: &mut HashMap<String, HashMap<u32, String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
+    let mut cur = RowData2::default();
+
+    while let Some(cell) = cell_reader.next_cell()? {
+        // 其余代码保持不变
+        let (row, col) = cell.get_position();
+
+        // 换行时处理上一行数据
+        if let Some(prev_row) = cur.row {
+            if row != prev_row {
+                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+                    let tag_trim = tag.trim();
+                    if !tag_trim.is_empty() {
+                        tag_value_map.insert(tag_trim.to_string(), value.clone());
+                    }
+                }
+                cur = RowData2::default();
+            }
+        }
+
+        cur.row = Some(row);
+        if row == 0 || (col != tag_index && !lang_index_vec.contains(&col)) {
+            // 跳过表头行和非相关列
+            continue;
+        }
+
+        if col == tag_index {
+            cur.tag = cell.get_value().as_string().map(String::from);
+        } else if lang_index_vec.contains(&col) {
+            let value = cell
+                .get_value()
+                .as_string()
+                .unwrap_or("".to_owned())
+                .replace("\n", "\\n");
+            match cur.value {
+                Some(ref mut map) => {
+                    map.insert(col, value);
+                }
+                None => {
+                    let mut map = HashMap::new();
+                    map.insert(col, value);
+                    cur.value = Some(map);
+                }
+            }
+        }
+    }
+
+    // 处理最后一行数据
+    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+        let tag_trim = tag.trim();
+        if !tag_trim.is_empty() {
+            tag_value_map.insert(tag_trim.to_string(), value.clone());
+        }
+    }
+
     Ok(())
 }
 
@@ -235,8 +334,13 @@ fn add_missing_tags(
     tag_value_map: &HashMap<String, String>,
     updated_tags: &HashSet<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut missing_tag_added = false;
     for (tag, value) in tag_value_map {
         if !updated_tags.contains(tag) {
+            if !missing_tag_added {
+                // 添加换行和缩进
+                missing_tag_added = true;
+            }
             // 为每个新标签添加缩进
             xml_writer.write_event(Event::Text(BytesText::new("\n    ")))?;
 
@@ -249,9 +353,10 @@ fn add_missing_tags(
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
     }
-
-    // 添加最后的换行
-    xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+    if missing_tag_added {
+        // 如果写入了新tag，添加换行和缩进
+        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+    }
 
     Ok(())
 }
