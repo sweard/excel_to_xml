@@ -83,8 +83,8 @@ pub fn write_xml(
 fn process_excel_data(
     workbook: &mut Xlsx<BufReader<File>>,
     sheet_name: &str,
-    tag_index: i32,
-    lang_index: i32,
+    tag_index: u32,
+    lang_index: u32,
     tag_value_map: &mut HashMap<String, String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
@@ -93,7 +93,6 @@ fn process_excel_data(
     while let Some(cell) = cell_reader.next_cell()? {
         // 其余代码保持不变
         let (row, col) = cell.get_position();
-        let i32_col = col as i32;
         
         // 换行时处理上一行数据
         if let Some(prev_row) = cur.row {
@@ -112,14 +111,14 @@ fn process_excel_data(
         }
 
         cur.row = Some(row);
-        if row == 0 || (i32_col != tag_index && i32_col != lang_index) {
+        if row == 0 || (col != tag_index && col != lang_index) {
             // 跳过表头行和非相关列
             continue;
         }
         
-        if i32_col == tag_index {
+        if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
-        } else if i32_col == lang_index {
+        } else if col == lang_index {
             cur.value = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
         }
     }

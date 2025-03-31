@@ -94,11 +94,11 @@ fn open_excel_workbook(file_path: &str) -> Result<(Xlsx<BufReader<File>>, String
 }
 
 /// 查找标签索引
-fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<i32, Box<dyn Error>> {
+fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<u32, Box<dyn Error>> {
     first_row
         .iter()
         .position(|r| r == tag_name)
-        .map(|pos| pos as i32)
+        .map(|pos| pos as u32)
         .ok_or_else(|| Box::new(ExcelError::TagNotFound(tag_name.to_string())) as Box<dyn Error>)
 }
 
@@ -106,14 +106,14 @@ fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<i32, Box<dyn E
 fn find_language_indices(
     first_row: &[String],
     lang_map: &[(String, String)],
-) -> Vec<(String, i32)> {
+) -> Vec<(String, u32)> {
     lang_map
         .iter()
         .filter_map(|(lang, lang_name)| {
             first_row
                 .iter()
                 .position(|r| r == lang_name)
-                .map(|index| (lang.clone(), index as i32))
+                .map(|index| (lang.clone(), index as u32))
         })
         .collect()
 }

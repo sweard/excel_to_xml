@@ -71,9 +71,9 @@ impl InputCfg {
 #[derive(Debug, PartialEq)]
 pub struct ParsedCfg {
     pub sheet_name: String,                 // 表名
-    pub tag_index: i32,                     // 标签序号 excel中的序号
+    pub tag_index: u32,                     // 标签序号 excel中的序号
     pub default_lang: String,               // 默认语言
-    pub lang_index_map: Vec<(String, i32)>, // 语言名称 zh-cn, excel中的序号
+    pub lang_index_map: Vec<(String, u32)>, // 语言名称 zh-cn, excel中的序号
     pub replace_all: bool,                  // 是否替换所有
 }
 
