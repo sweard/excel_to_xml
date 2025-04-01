@@ -2,30 +2,16 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{remove_file, rename, File},
     io::{BufReader, BufWriter},
-    path,
 };
 
-use crate::config::ParsedCfg;
-use calamine::{open_workbook, DataType, Reader, Xlsx};
+use crate::{config::ParsedCfg, find_files, read_excel};
+use calamine::{open_workbook, Reader, Xlsx};
 use quick_xml::{
-    events::{BytesEnd, BytesStart, BytesText, Event},
+    events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
     Writer,
 };
 
-/// 当前行数据结构体，替代元组提高可读性
-#[derive(Default)]
-struct RowData {
-    row: Option<u32>,
-    tag: Option<String>,
-    value: Option<String>,
-}
-
-#[derive(Default)]
-struct RowData2 {
-    row: Option<u32>,
-    tag: Option<String>,
-    value: Option<HashMap<u32, String>>,
-}
+const FILTER: [&str; 2] = ["build", "mainland"];
 
 #[derive(Default)]
 struct PathIndex {
@@ -33,17 +19,107 @@ struct PathIndex {
     index: u32,
 }
 
-/**
- * 写入XML文件
- * @param file_path excel文件路径
- * @param parsed_cfg 解析后的配置
- * @param paths XML文件路径
- */
-pub fn write_xml(
-    file_path: &str,
-    parsed_cfg: &ParsedCfg,
-    paths: &[String],
+/// 获取解析后的数据
+/// - excel_path: Excel文件路径
+/// - parsed_cfg: 解析后的配置
+/// - paths: 找到的XML文件路径列表
+fn get_parsed_data<'a>(
+    cfg_json: &str,
+    excel_path: &'a str,
+    xml_dir_path: &str,
+) -> Option<(&'a str, ParsedCfg, Vec<String>)> {
+    let cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json);
+    if cfg.is_err() {
+        println!("解析配置时出错: {:?}", cfg.err());
+        return None;
+    }
+    let parsed_cfg = cfg.unwrap();
+    println!("解析配置成功: {:?}", parsed_cfg);
+    let forder = find_files::find_target_folder(&xml_dir_path, "res", &FILTER);
+    if forder.is_none() {
+        println!("未找到res文件夹");
+        return None;
+    }
+    let res_folder = forder.unwrap();
+    println!("找到res文件夹: {}", res_folder);
+    let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
+    return Some((excel_path, parsed_cfg, paths));
+}
+
+/// 准备需要写入的数据
+pub fn update(
+    cfg_json: &str,
+    excel_path: &str,
+    xml_dir_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
+        Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
+        None => return Ok(()),
+    };
+    let tag_index = parsed_cfg.tag_index;
+    // 预先打开Excel文件，只打开一次
+    let mut workbook: Xlsx<_> = open_workbook(file_path)?;
+
+    // 获取sheet名称（只需获取一次）
+    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
+        workbook
+            .sheet_names()
+            .get(0)
+            .cloned()
+            .ok_or("No sheets found")?
+    } else {
+        parsed_cfg.sheet_name.clone()
+    };
+
+    // 预分配一个HashMap，循环内复用
+    let mut tag_value_map = HashMap::with_capacity(5000);
+
+    // 遍历语言索引映射
+    for (lang, index) in &parsed_cfg.lang_index_map {
+        let is_default_lang = lang == &parsed_cfg.default_lang;
+        let end_point = if is_default_lang {
+            "values/strings.xml".to_string()
+        } else {
+            format!("values-{}/strings.xml", lang)
+        };
+
+        // 查找匹配的XML文件路径
+        let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
+            Some(path) => path,
+            None => continue, // 没找到对应语言的文件，跳过这个语言
+        };
+
+        // 清空map，准备复用
+        tag_value_map.clear();
+
+        // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
+        let lang_index = *index;
+        read_excel::process_excel_single_lang(
+            &mut workbook,
+            &sheet_name,
+            tag_index,
+            lang_index,
+            &mut tag_value_map,
+        )?;
+
+        // 处理XML文件
+        update_xml_file(path, &tag_value_map, &parsed_cfg)?;
+    }
+    tag_value_map.clear(); // 清空map
+    tag_value_map.shrink_to_fit(); // 释放内存
+    Ok(())
+}
+
+/// 快速更新，占用更多内存
+pub fn quick_update(
+    cfg_json: &str,
+    excel_path: &str,
+    xml_dir_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
+        Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
+        None => return Ok(()),
+    };
     let tag_index = parsed_cfg.tag_index;
 
     // 预先打开Excel文件，只打开一次
@@ -82,19 +158,10 @@ pub fn write_xml(
             index: *index,
         };
         path_index_vec.push(path_index);
-        // 清空map，准备复用
-        // tag_value_map.clear();
-
-        // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
-        // let lang_index = *index;
-        // process_excel_data(&mut workbook, &sheet_name, tag_index, lang_index, &mut tag_value_map)?;
-
-        // // 处理XML文件
-        // update_xml_file(path, &tag_value_map, parsed_cfg)?;
     }
     let lang_index_vec: Vec<u32> = path_index_vec.iter().map(|p| p.index).collect();
 
-    process_excel_data2(
+    read_excel::process_excel_multi_lang(
         &mut workbook,
         &sheet_name,
         tag_index,
@@ -109,129 +176,17 @@ pub fn write_xml(
         tag_value_map.iter().for_each(|(tag, map)| {
             write_map.insert(tag.to_string(), map.get(&index).unwrap().to_string());
         });
-        println!("write_map size: {}", write_map.len());
-        update_xml_file(path, &write_map, parsed_cfg).unwrap();
+        let res = update_xml_file(path, &write_map, &parsed_cfg);
+        if res.is_err() {
+            println!(
+                "更新XML文件失败,lang index: {}, err: {:?}",
+                index,
+                res.err()
+            );
+        }
     });
-
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
-    Ok(())
-}
-
-/// 从Excel提取数据到映射表 - 使用传入的workbook和tag_value_map避免重复创建
-fn process_excel_data(
-    workbook: &mut Xlsx<BufReader<File>>,
-    sheet_name: &str,
-    tag_index: u32,
-    lang_index: u32,
-    tag_value_map: &mut HashMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
-    let mut cur = RowData::default();
-
-    while let Some(cell) = cell_reader.next_cell()? {
-        // 其余代码保持不变
-        let (row, col) = cell.get_position();
-
-        // 换行时处理上一行数据
-        if let Some(prev_row) = cur.row {
-            if row != prev_row {
-                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
-                    let tag_trim = tag.trim();
-                    if !tag_trim.is_empty() {
-                        tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
-                    }
-                }
-                cur = RowData::default();
-            }
-        }
-
-        cur.row = Some(row);
-        if row == 0 || (col != tag_index && col != lang_index) {
-            // 跳过表头行和非相关列
-            continue;
-        }
-
-        if col == tag_index {
-            cur.tag = cell.get_value().as_string().map(String::from);
-        } else if col == lang_index {
-            cur.value = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
-        }
-    }
-
-    // 处理最后一行数据
-    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
-        let tag_trim = tag.trim();
-        if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
-        }
-    }
-
-    Ok(())
-}
-
-/// 一次解析所有语言
-fn process_excel_data2(
-    workbook: &mut Xlsx<BufReader<File>>,
-    sheet_name: &str,
-    tag_index: u32,
-    lang_index_vec: Vec<u32>,
-    tag_value_map: &mut HashMap<String, HashMap<u32, String>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
-    let mut cur = RowData2::default();
-
-    while let Some(cell) = cell_reader.next_cell()? {
-        // 其余代码保持不变
-        let (row, col) = cell.get_position();
-
-        // 换行时处理上一行数据
-        if let Some(prev_row) = cur.row {
-            if row != prev_row {
-                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
-                    let tag_trim = tag.trim();
-                    if !tag_trim.is_empty() {
-                        tag_value_map.insert(tag_trim.to_string(), value.clone());
-                    }
-                }
-                cur = RowData2::default();
-            }
-        }
-
-        cur.row = Some(row);
-        if row == 0 || (col != tag_index && !lang_index_vec.contains(&col)) {
-            // 跳过表头行和非相关列
-            continue;
-        }
-
-        if col == tag_index {
-            cur.tag = cell.get_value().as_string().map(String::from);
-        } else if lang_index_vec.contains(&col) {
-            let value = cell
-                .get_value()
-                .as_string()
-                .unwrap_or("".to_owned())
-                .replace("\n", "\\n");
-            match cur.value {
-                Some(ref mut map) => {
-                    map.insert(col, value);
-                }
-                None => {
-                    let mut map = HashMap::new();
-                    map.insert(col, value);
-                    cur.value = Some(map);
-                }
-            }
-        }
-    }
-
-    // 处理最后一行数据
-    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
-        let tag_trim = tag.trim();
-        if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), value.clone());
-        }
-    }
 
     Ok(())
 }
@@ -254,74 +209,102 @@ fn update_xml_file(
     let writer = BufWriter::new(output_file);
     let mut xml_writer = Writer::new(writer);
 
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(4 * 1024);
     let mut current_tag_name = None;
     let mut updated_tags = HashSet::new();
     if parsed_cfg.replace_all {
-        // TODO 覆盖全部内容
-    }
+        // 重写XML文件
+        // 1. 写入XML声明
+        xml_writer.write_event(Event::Decl(BytesDecl::new("1.0", Some("utf-8"), None)))?;
 
-    // 处理XML事件
-    loop {
-        match xml_reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                if e.name().as_ref() == b"string" {
-                    // 提取name属性
-                    for attr in e.attributes() {
-                        if let Ok(attr) = attr {
-                            if attr.key.as_ref() == b"name" {
-                                if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
-                                    if tag_value_map.contains_key(tag_name) {
-                                        current_tag_name = Some(tag_name.to_string());
+        // 2. 添加换行
+        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+
+        // 3. 打开resources标签
+        xml_writer.write_event(Event::Start(BytesStart::new("resources")))?;
+
+        // 4. 按照tag_value_map写入所有标签
+        for (tag, value) in tag_value_map {
+            // 添加换行和缩进
+            xml_writer.write_event(Event::Text(BytesText::new("\n    ")))?;
+
+            // 创建string标签
+            let mut elem = BytesStart::new("string");
+            elem.push_attribute(("name", tag.as_str()));
+
+            xml_writer.write_event(Event::Start(elem))?;
+            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
+        }
+
+        // 5. 添加最后的换行
+        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+
+        // 6. 关闭resources标签
+        xml_writer.write_event(Event::End(BytesEnd::new("resources")))?;
+    } else {
+        // 更新XML文件
+        loop {
+            match xml_reader.read_event_into(&mut buf) {
+                Ok(Event::Start(ref e)) => {
+                    if e.name().as_ref() == b"string" {
+                        // 提取name属性
+                        for attr in e.attributes() {
+                            if let Ok(attr) = attr {
+                                if attr.key.as_ref() == b"name" {
+                                    if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
+                                        if tag_value_map.contains_key(tag_name) {
+                                            current_tag_name = Some(tag_name.to_string());
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                xml_writer.write_event(Event::Start(e.to_owned()))?;
-            }
-
-            Ok(Event::End(ref e)) => {
-                if e.name().as_ref() == b"resources" {
-                    // 在关闭resources标签前添加缺失的标签
-                    add_missing_tags(&mut xml_writer, tag_value_map, &updated_tags)?;
-                }
-                xml_writer.write_event(Event::End(e.to_owned()))?;
-            }
-
-            Ok(Event::Text(e)) => {
-                // 提前处理没有当前标签的情况
-                if current_tag_name.is_none() {
-                    xml_writer.write_event(Event::Text(e.to_owned()))?;
-                    continue;
+                    xml_writer.write_event(Event::Start(e.to_owned()))?;
                 }
 
-                let tag_name = current_tag_name.as_ref().unwrap();
-                updated_tags.insert(tag_name.to_string());
-
-                // 更新文本内容
-                match tag_value_map.get(tag_name) {
-                    Some(value) if !value.is_empty() => {
-                        xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+                Ok(Event::End(ref e)) => {
+                    if e.name().as_ref() == b"resources" {
+                        // 在关闭resources标签前添加缺失的标签
+                        add_missing_tags(&mut xml_writer, tag_value_map, &updated_tags)?;
                     }
-                    _ => {
+                    xml_writer.write_event(Event::End(e.to_owned()))?;
+                }
+
+                Ok(Event::Text(e)) => {
+                    // 提前处理没有当前标签的情况
+                    if current_tag_name.is_none() {
                         xml_writer.write_event(Event::Text(e.to_owned()))?;
+                        continue;
                     }
+
+                    let tag_name = current_tag_name.as_ref().unwrap();
+                    updated_tags.insert(tag_name.to_string());
+
+                    // 更新文本内容
+                    match tag_value_map.get(tag_name) {
+                        Some(value) if !value.is_empty() => {
+                            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+                        }
+                        _ => {
+                            xml_writer.write_event(Event::Text(e.to_owned()))?;
+                        }
+                    }
+
+                    current_tag_name = None;
                 }
 
-                current_tag_name = None;
+                Ok(Event::Eof) => break,
+                Ok(e) => xml_writer.write_event(e)?,
+                Err(e) => return Err(e.into()),
             }
-
-            Ok(Event::Eof) => break,
-            Ok(e) => xml_writer.write_event(e)?,
-            Err(e) => return Err(e.into()),
+            buf.clear();
         }
-        buf.clear();
     }
-
+    drop(xml_writer);
+    drop(xml_reader);
     // 替换原文件
-    drop(xml_writer); // 确保文件被写入并关闭
     remove_file(path)?;
     rename(temp_path, path)?;
 
@@ -338,7 +321,7 @@ fn add_missing_tags(
     for (tag, value) in tag_value_map {
         if !updated_tags.contains(tag) {
             if !missing_tag_added {
-                // 添加换行和缩进
+                // 结束时，需要添加换行和缩进
                 missing_tag_added = true;
             }
             // 为每个新标签添加缩进
@@ -357,6 +340,5 @@ fn add_missing_tags(
         // 如果写入了新tag，添加换行和缩进
         xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
     }
-
     Ok(())
 }

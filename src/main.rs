@@ -1,10 +1,12 @@
-use std::{fs, io::{self, Write}, mem};
+use std::{
+    fs,
+    io::{self, Write},
+};
+mod config;
 mod find_files;
 mod read_excel;
 mod write_xml;
-mod config;
 
-const FILTER: [&str; 2] = ["build", "mainland"];
 // const CFG_JSON: &str = r#"
 // {
 //     "sheetName":"",
@@ -27,49 +29,58 @@ const FILTER: [&str; 2] = ["build", "mainland"];
 // "#;
 
 fn main() {
-    let cfg_json = loop {
-        let cfg_json_path = prompt_user_input("请输入配置文件路径:");
-        match fs::read_to_string(&cfg_json_path) {
-            Ok(content) => {
-                break content;
-            }
-            Err(e) => {
-                println!("读取配置文件时出错: {:?}", e);
-            }
-        }; 
-    };
-
-    let (excel_path,parsed_cfg) = loop {
-        let excel_path = prompt_user_input("请输入Excel路径:");
-        match read_excel::parse_cfg_with_excel(&excel_path, cfg_json.as_str()) {
-            Ok(parsed_cfg) => {
-                println!("解析配置成功: {:?}", parsed_cfg);
-                break (excel_path,parsed_cfg);
-            }
-            Err(e) => {
-                eprintln!("解析配置时出错: {:?}", e);
-            }
-        }
-    };
-    println!("Size of parsed_cfg: {}", calculate_vec_memory(&parsed_cfg.lang_index_map));
-    let paths = loop {
-        let xml_dir_path = prompt_user_input("请输入XML所在模块路径:");
-        if let Some(res_folder) = find_files::find_target_folder(&xml_dir_path, "res", &FILTER) {
-            println!("找到res文件夹: {}", res_folder);
-            break find_files::collect_target_files(&res_folder, "values", "strings.xml");
-        } else {
-            println!("未找到res文件夹");
-        }
-    };
+    // 读取配置文件json
+    let mut cfg_json:Option<String> = None;
+    // 读取Excel路径
+    let mut excel_path = String::new();
+    // 读取XML所在模块路径
+    let mut xml_dir_path = String::new();
 
     loop {
-        let input = prompt_user_input("r更新xml文件，q退出:");
+        let input = prompt_user_input("c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步，\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出");
         match input.as_str() {
-            "r" => {
-                if let Err(e) = write_xml::write_xml(&excel_path, &parsed_cfg, &paths) {
-                    println!("写入XML时出错: {:?}", e);
+            "c" => {
+                cfg_json = update_cfg_json();
+            }
+            "x" => {
+                excel_path = update_excel_path();
+            }
+            "t" => {
+                xml_dir_path = update_xml_dir_path();
+            }
+            "u" => {
+                if let Some(cfg) = &cfg_json {
+                    // 统计耗时
+                    let start_time = std::time::Instant::now();
+                    match write_xml::update(cfg, &excel_path, &xml_dir_path) {
+                        Ok(_) => println!("更新成功"),
+                        Err(e) => println!("更新失败: {:?}", e),
+                    }
+                    let duration = start_time.elapsed();
+                    println!("同步耗时: {:?}", duration);
                 } else {
-                    println!("写入XML成功");
+                    println!("配置文件路径无效");
+                }
+            }
+            "qu" => {
+                if let Some(cfg) = &cfg_json {
+                    // 统计耗时
+                    let start_time = std::time::Instant::now();
+                    match write_xml::quick_update(cfg, &excel_path, &xml_dir_path) {
+                        Ok(_) => println!("更新成功"),
+                        Err(e) => println!("更新失败: {:?}", e),
+                    }
+                    let duration = start_time.elapsed();
+                    println!("快速同步耗时: {:?}", duration);
+                } else {
+                    println!("配置文件路径无效");
+                }
+            }
+            "i" => {
+                if let Some(cfg) = &cfg_json {
+                    println!("当前配置 json:{} \nexcel:{} \nxml dir:{}", &cfg, &excel_path, &xml_dir_path);
+                } else {
+                    println!("当前配置 json:{} \nexcel:{} \nxml dir:{}", "格式异常", &excel_path, &xml_dir_path);
                 }
             }
             "q" => {
@@ -78,11 +89,8 @@ fn main() {
             _ => {
                 println!("无效输入");
             }
-            
         }
     }
-    
-
 }
 
 /// 提示用户输入并返回去除多余字符的字符串
@@ -94,10 +102,21 @@ fn prompt_user_input(prompt: &str) -> String {
     input.trim().replace("'", "")
 }
 
-fn calculate_vec_memory<T>(vec: &Vec<T>) -> usize {
-    let element_size = mem::size_of::<T>();
-    let heap_size = element_size * vec.len();
-    let stack_size = mem::size_of_val(vec);
-    stack_size + heap_size
+fn update_cfg_json() -> Option<String> {
+    let cfg_json_path = prompt_user_input("请输入配置文件路径:");
+    match fs::read_to_string(&cfg_json_path) {
+        Ok(content) => Some(content),
+        Err(e) => {
+            println!("读取配置文件时出错: {:?}", e);
+            None
+        }
+    }
 }
 
+fn update_excel_path() -> String {
+    prompt_user_input("请输入Excel路径:")
+}
+
+fn update_xml_dir_path() -> String {
+    prompt_user_input("请输入XML所在模块路径:")
+}

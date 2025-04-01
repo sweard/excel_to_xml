@@ -1,5 +1,6 @@
 use crate::config::{InputCfg, ParsedCfg};
 use calamine::{open_workbook, DataType, Reader, Xlsx};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -26,6 +27,24 @@ impl fmt::Display for ExcelError {
 }
 
 impl Error for ExcelError {}
+
+/// 读取Excel文件并解析
+/// 单行单语言数据结构
+#[derive(Default)]
+struct RowSingleLangData {
+    row: Option<u32>,
+    tag: Option<String>,
+    value: Option<String>,
+}
+
+/// 读取Excel文件并解析
+/// 单行多语言数据结构
+#[derive(Default)]
+struct RowMultiLangData {
+    row: Option<u32>,
+    tag: Option<String>,
+    value: Option<HashMap<u32, String>>,
+}
 
 /**
  * 解析Excel文件
@@ -116,4 +135,138 @@ fn find_language_indices(
                 .map(|index| (lang.clone(), index as u32))
         })
         .collect()
+}
+
+/// 一次解析单个语种
+/// 内存占用低，解析全部语言更耗时
+/// * @param workbook Excel工作簿
+/// * @param sheet_name 工作表名称
+/// * @param tag_index 标签列索引
+/// * @param lang_index 语言列索引
+/// * @param tag_value_map 标签值映射
+/// * @return 解析是否成功
+pub fn process_excel_single_lang(
+    workbook: &mut Xlsx<BufReader<File>>,
+    sheet_name: &str,
+    tag_index: u32,
+    lang_index: u32,
+    tag_value_map: &mut HashMap<String, String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
+    let mut cur = RowSingleLangData::default();
+
+    while let Some(cell) = cell_reader.next_cell()? {
+        // 其余代码保持不变
+        let (row, col) = cell.get_position();
+
+        // 换行时处理上一行数据
+        if let Some(prev_row) = cur.row {
+            if row != prev_row {
+                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+                    let tag_trim = tag.trim();
+                    if !tag_trim.is_empty() {
+                        tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
+                    }
+                }
+                cur = RowSingleLangData::default();
+            }
+        }
+
+        cur.row = Some(row);
+        if row == 0 || (col != tag_index && col != lang_index) {
+            // 跳过表头行和非相关列
+            continue;
+        }
+
+        if col == tag_index {
+            cur.tag = cell.get_value().as_string().map(String::from);
+        } else if col == lang_index {
+            cur.value = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
+        }
+    }
+
+    // 处理最后一行数据
+    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+        let tag_trim = tag.trim();
+        if !tag_trim.is_empty() {
+            tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
+        }
+    }
+
+    Ok(())
+}
+
+
+/// 一次解析所有语种
+/// * 解析全部语言耗时更少，但内存占用更高
+/// * @param workbook Excel工作簿
+/// * @param sheet_name 工作表名称
+/// * @param tag_index 标签列索引
+/// * @param lang_index_vec 语言列索引向量
+/// * @param tag_value_map 标签值映射
+/// * @return 解析是否成功
+pub fn process_excel_multi_lang(
+    workbook: &mut Xlsx<BufReader<File>>,
+    sheet_name: &str,
+    tag_index: u32,
+    lang_index_vec: Vec<u32>,
+    tag_value_map: &mut HashMap<String, HashMap<u32, String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
+    let mut cur = RowMultiLangData::default();
+
+    while let Some(cell) = cell_reader.next_cell()? {
+        // 其余代码保持不变
+        let (row, col) = cell.get_position();
+
+        // 换行时处理上一行数据
+        if let Some(prev_row) = cur.row {
+            if row != prev_row {
+                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+                    let tag_trim = tag.trim();
+                    if !tag_trim.is_empty() {
+                        tag_value_map.insert(tag_trim.to_string(), value.clone());
+                    }
+                }
+                // 重置当前行数据
+                cur = RowMultiLangData::default();
+            }
+        }
+
+        cur.row = Some(row);
+        if row == 0 || (col != tag_index && !lang_index_vec.contains(&col)) {
+            // 跳过表头行和非相关列
+            continue;
+        }
+
+        if col == tag_index {
+            cur.tag = cell.get_value().as_string().map(String::from);
+        } else if lang_index_vec.contains(&col) {
+            let value = cell
+                .get_value()
+                .as_string()
+                .unwrap_or("".to_owned())
+                .replace("\n", "\\n");
+            match cur.value {
+                Some(ref mut map) => {
+                    map.insert(col, value);
+                }
+                None => {
+                    let mut map = HashMap::new();
+                    map.insert(col, value);
+                    cur.value = Some(map);
+                }
+            }
+        }
+    }
+
+    // 处理最后一行数据
+    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+        let tag_trim = tag.trim();
+        if !tag_trim.is_empty() {
+            tag_value_map.insert(tag_trim.to_string(), value.clone());
+        }
+    }
+
+    Ok(())
 }
