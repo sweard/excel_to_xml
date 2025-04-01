@@ -35,18 +35,21 @@ fn main() {
     let mut excel_path = String::new();
     // 读取XML所在模块路径
     let mut xml_dir_path = String::new();
-
+    let menu = "c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出";
+    let json_prompt = "请输入配置文件路径:";
+    let excel_prompt = "请输入Excel路径:";
+    let xml_prompt = "请输入XML所在模块路径:";
     loop {
-        let input = prompt_user_input("c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步，\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出");
+        let input = prompt_user_input(menu);
         match input.as_str() {
             "c" => {
-                cfg_json = update_cfg_json();
+                cfg_json = update_cfg_json(json_prompt);
             }
             "x" => {
-                excel_path = update_excel_path();
+                excel_path = prompt_user_input(excel_prompt);
             }
             "t" => {
-                xml_dir_path = update_xml_dir_path();
+                xml_dir_path = prompt_user_input(xml_prompt);
             }
             "u" => {
                 if let Some(cfg) = &cfg_json {
@@ -102,8 +105,8 @@ fn prompt_user_input(prompt: &str) -> String {
     input.trim().replace("'", "")
 }
 
-fn update_cfg_json() -> Option<String> {
-    let cfg_json_path = prompt_user_input("请输入配置文件路径:");
+fn update_cfg_json(prompt: &str) -> Option<String> {
+    let cfg_json_path = prompt_user_input(prompt);
     match fs::read_to_string(&cfg_json_path) {
         Ok(content) => Some(content),
         Err(e) => {
@@ -111,12 +114,4 @@ fn update_cfg_json() -> Option<String> {
             None
         }
     }
-}
-
-fn update_excel_path() -> String {
-    prompt_user_input("请输入Excel路径:")
-}
-
-fn update_xml_dir_path() -> String {
-    prompt_user_input("请输入XML所在模块路径:")
 }

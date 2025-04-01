@@ -64,27 +64,30 @@ pub fn parse_cfg_with_excel(
 
     // 获取cell_reader迭代器
     let mut cell_reader = workbook.worksheet_cells_reader(&sheet_name)?;
-    
-     // 1. 读取表头行
-     let mut first_row:Vec<String> = Vec::new();
-     // 逐个单元格处理，直到找到第一行的所有单元格
-     while let Some(cell) = cell_reader.next_cell()? {
-         if cell.get_position().0 > 0 {
-             // 已经读取完第一行
-             break;
-         }
-          // 安全地转换单元格值为字符串
+
+    // 1. 读取表头行
+    let mut first_row: Vec<String> = Vec::new();
+    // 逐个单元格处理，直到找到第一行的所有单元格
+    while let Some(cell) = cell_reader.next_cell()? {
+        if cell.get_position().0 > 0 {
+            // 已经读取完第一行
+            break;
+        }
+        // 安全地转换单元格值为字符串
         match cell.get_value().as_string() {
             Some(value) => first_row.push(value),
-            None => return Err(Box::new(ExcelError::CellConversionFailed(
-                format!("无法将单元格 {:?} 转换为字符串", cell.get_position())
-            ))),
+            None => {
+                return Err(Box::new(ExcelError::CellConversionFailed(format!(
+                    "无法将单元格 {:?} 转换为字符串",
+                    cell.get_position()
+                ))))
+            }
         }
-     }
-     if first_row.is_empty() {
-         return Err(Box::new(ExcelError::InvalidFirstLine));
-     }
-     println!("header_cells: {:?}", first_row);
+    }
+    if first_row.is_empty() {
+        return Err(Box::new(ExcelError::InvalidFirstLine));
+    }
+    println!("header_cells: {:?}", first_row);
 
     // 查找标签索引
     let tag_index = find_tag_index(&first_row, &input_cfg.tag_name)?;
@@ -165,7 +168,7 @@ pub fn process_excel_single_lang(
                 if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
                     let tag_trim = tag.trim();
                     if !tag_trim.is_empty() {
-                        tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
+                        tag_value_map.insert(tag_trim.to_string(), value.clone());
                     }
                 }
                 cur = RowSingleLangData::default();
@@ -181,7 +184,12 @@ pub fn process_excel_single_lang(
         if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if col == lang_index {
-            cur.value = Some(cell.get_value().as_string().unwrap_or("".to_owned()));
+            let raw = cell
+                .get_value()
+                .as_string()
+                .unwrap_or("".to_owned());
+            let value = replace_string(raw);
+            cur.value = Some(value);
         }
     }
 
@@ -189,13 +197,12 @@ pub fn process_excel_single_lang(
     if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
         let tag_trim = tag.trim();
         if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), value.replace('\n', "\\n"));
+            tag_value_map.insert(tag_trim.to_string(), value.clone());
         }
     }
 
     Ok(())
 }
-
 
 /// 一次解析所有语种
 /// * 解析全部语言耗时更少，但内存占用更高
@@ -242,11 +249,11 @@ pub fn process_excel_multi_lang(
         if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if lang_index_vec.contains(&col) {
-            let value = cell
+            let raw = cell
                 .get_value()
                 .as_string()
-                .unwrap_or("".to_owned())
-                .replace("\n", "\\n");
+                .unwrap_or("".to_owned());
+            let value = replace_string(raw);
             match cur.value {
                 Some(ref mut map) => {
                     map.insert(col, value);
@@ -269,4 +276,11 @@ pub fn process_excel_multi_lang(
     }
 
     Ok(())
+}
+
+fn replace_string(origin: String) -> String {
+    origin
+        .replace("\n", "\\n") // 处理换行
+        .replace(" ", " ") // 处理NBSP
+        // todo ' -> &apos; " -> &quot;
 }
