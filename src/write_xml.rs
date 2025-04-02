@@ -212,7 +212,10 @@ fn update_xml_file(
     let mut buf = Vec::with_capacity(4 * 1024);
     let mut current_tag_name = None;
     let mut updated_tags = HashSet::new();
-    if parsed_cfg.replace_all {
+
+    let disable_escape = parsed_cfg.disable_escape;
+    let escape_only = &parsed_cfg.escape_only;
+    if parsed_cfg.reset {
         // 重写XML文件
         // 1. 写入XML声明
         xml_writer.write_event(Event::Decl(BytesDecl::new("1.0", Some("utf-8"), None)))?;
@@ -233,7 +236,24 @@ fn update_xml_file(
             elem.push_attribute(("name", tag.as_str()));
 
             xml_writer.write_event(Event::Start(elem))?;
-            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            // if disable_escape {
+            //     // 直接写入文本内容，不会再自动转义
+            //     xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
+            // } else {
+            //     if escape_only.is_empty() {
+            //         // 转义所有内容
+            //         xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            //     } else {
+            //         // 只转义指定的内容
+            //         let mut escaped_value = value.to_string();
+            //         for (key, val) in &escape_only {
+            //             escaped_value = escaped_value.replace(key, val);
+            //         }
+            //         xml_writer.write_event(Event::Text(BytesText::from_escaped(&escaped_value)))?;
+            //     }
+            // }
+            write_text(disable_escape, &mut xml_writer, value, escape_only)?;
+            
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
 
@@ -267,7 +287,12 @@ fn update_xml_file(
                 Ok(Event::End(ref e)) => {
                     if e.name().as_ref() == b"resources" {
                         // 在关闭resources标签前添加缺失的标签
-                        add_missing_tags(&mut xml_writer, tag_value_map, &updated_tags)?;
+                        add_missing_tags(
+                            &mut xml_writer,
+                            tag_value_map,
+                            &updated_tags,
+                            parsed_cfg,
+                        )?;
                     }
                     xml_writer.write_event(Event::End(e.to_owned()))?;
                 }
@@ -285,7 +310,8 @@ fn update_xml_file(
                     // 更新文本内容
                     match tag_value_map.get(tag_name) {
                         Some(value) if !value.is_empty() => {
-                            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+                            write_text(disable_escape, &mut xml_writer, value, escape_only)?;
+                            // xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
                         }
                         _ => {
                             xml_writer.write_event(Event::Text(e.to_owned()))?;
@@ -316,7 +342,11 @@ fn add_missing_tags(
     xml_writer: &mut Writer<BufWriter<File>>,
     tag_value_map: &HashMap<String, String>,
     updated_tags: &HashSet<String>,
+    parsed_cfg: &ParsedCfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let disable_escape = parsed_cfg.disable_escape;
+    let escape_only = &parsed_cfg.escape_only;
+    println!("escape_only: {:?}", escape_only);
     let mut missing_tag_added = false;
     for (tag, value) in tag_value_map {
         if !updated_tags.contains(tag) {
@@ -332,13 +362,35 @@ fn add_missing_tags(
             elem.push_attribute(("name", tag.as_str()));
 
             xml_writer.write_event(Event::Start(elem))?;
-            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            println!("add_missing_tags tag: {}, value: {}", tag, value);
+            // xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            write_text(disable_escape, xml_writer, value, escape_only)?;
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
     }
     if missing_tag_added {
         // 如果写入了新tag，添加换行和缩进
         xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+    }
+    Ok(())
+}
+
+fn write_text(disable_escape: bool, xml_writer: &mut Writer<BufWriter<File>>, value: &str, escape_only: &Vec<(String, String)>)->Result<(), Box<dyn std::error::Error>> {
+    if disable_escape {
+        // 直接写入文本内容，不会再自动转义
+        xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
+    } else {
+        if escape_only.is_empty() {
+            // 转义所有内容
+            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+        } else {
+            // 只转义指定的内容
+            let mut escaped_value = value.to_string();
+            for (key, val) in escape_only {
+                escaped_value = escaped_value.replace(key, val);
+            }
+            xml_writer.write_event(Event::Text(BytesText::from_escaped(&escaped_value)))?;
+        }
     }
     Ok(())
 }

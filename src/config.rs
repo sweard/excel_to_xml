@@ -1,16 +1,49 @@
 use serde_json::{from_str, Value};
 use std::error::Error;
 
+const CFG_JSON: &str = r#"
+{
+    "sheetName":"sheetName",
+    "tagName": "Android tag",
+    "defaultLang":"en",
+    "langMap": {
+        "zh": "中文简体",
+        "zh-rTW": "中文繁体",
+        "en": "英语",
+        "ja": "日语",
+        "ko-rKR": "韩语",
+        "fr": "法语",
+        "de": "德语",
+        "es": "西班牙语",
+        "it": "意大利语",
+        "nl": "荷兰语"
+    },
+    "disableEscape": false,
+    "escapeOnly":{
+        "\n":"\\n",
+        "\\\\n":"\\n",
+        "'":"\\'",
+        "\\\\'":"\\'",
+        "\"":"\\\"",
+        "\\\\\"":"\\\"",
+        " ":" "
+    },
+    "reset": false
+}
+"#;
+
 /**
  * 输入的配置
  */
 #[derive(Debug, PartialEq)]
 pub struct InputCfg {
-    pub sheet_name: String,              // 表名
-    pub tag_name: String,                // 标签名称
-    pub default_lang: String,            // 默认语言
-    pub lang_map: Vec<(String, String)>, // 语言名称 zh-cn,中文
-    pub replace_all: bool,               // 是否替换所有
+    pub sheet_name: String,                 // 表名
+    pub tag_name: String,                   // 标签名称
+    pub default_lang: String,               // 默认语言
+    pub lang_map: Vec<(String, String)>,    // 语言名称 zh-cn,中文
+    pub reset: bool,                        // 是否替换所有
+    pub disable_escape: bool,               // 是否禁用转义
+    pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
 }
 
 impl InputCfg {
@@ -49,18 +82,32 @@ impl InputCfg {
             .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
             .collect();
         // 是否替换所有,默认为false
-        let replace_all = json_obj
-            .get("replaceAll")
+        let reset = json_obj
+            .get("reset")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
+        let disable_escape = json_obj
+            .get("disableEscape")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let escape_only = json_obj
+            .get("escapeOnly")
+            .and_then(Value::as_object)
+            .ok_or("Missing or invalid 'escapeOnly' field")?
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+            .collect();
+        
         Ok(InputCfg {
             sheet_name,
             tag_name,
             default_lang,
             lang_map,
-            replace_all,
-
+            reset,
+            disable_escape,
+            escape_only,
         })
     }
 }
@@ -74,7 +121,9 @@ pub struct ParsedCfg {
     pub tag_index: u32,                     // 标签序号 excel中的序号
     pub default_lang: String,               // 默认语言
     pub lang_index_map: Vec<(String, u32)>, // 语言名称 zh-cn, excel中的序号
-    pub replace_all: bool,                  // 是否替换所有
+    pub reset: bool,                  // 是否替换所有
+    pub disable_escape: bool, // 是否禁用转义
+    pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
 }
 
 #[cfg(test)]
@@ -83,26 +132,7 @@ mod tests {
 
     #[test]
     fn test_from_json() {
-        let json_data = r#"
-        {
-            "sheetName":"",
-            "tagName": "Android tag",
-            "defaultLang":"en",
-            "langMap": {
-                "zh": "中文简体",
-                "zh-rTW": "中文繁体",
-                "en": "英语",
-                "ja": "日语",
-                "ko-rKR": "韩语",
-                "fr": "法语",
-                "de": "德语",
-                "es": "西班牙语",
-                "it": "意大利语",
-                "nl": "荷兰语"
-            },
-            "replaceAll": false
-        }
-        "#;
+        let json_data = CFG_JSON;
 
         let mut expected_lang_map: Vec<(String, String)> = [
             ("zh".to_string(), "中文简体".to_string()),
@@ -118,12 +148,27 @@ mod tests {
         ]
         .to_vec();
         expected_lang_map.sort();
+
+        let mut expected_escape_only: Vec<(String, String)> = [
+            ("\n".to_string(), "\\n".to_string()),
+            ("\\\\n".to_string(), "\\n".to_string()),
+            ("'".to_string(), "\\'".to_string()),
+            ("\\\\'".to_string(), "\\'".to_string()),
+            ("\"".to_string(), "\\\"".to_string()),
+            ("\\\\\"".to_string(), "\\\"".to_string()),
+            (" ".to_string(), " ".to_string()),
+        ]
+        .to_vec();
+        expected_escape_only.sort();
+
         let expected_config = InputCfg {
             sheet_name: "sheetName".to_string(),
             tag_name: "Android tag".to_string(),
             default_lang: "en".to_string(),
             lang_map: expected_lang_map,
-            replace_all: false,
+            reset: false,
+            disable_escape: false,
+            escape_only: expected_escape_only,
         };
         println!("excepted-->{:?}", expected_config);
         let parsed_config = InputCfg::from_json(json_data).expect("Failed to parse JSON");

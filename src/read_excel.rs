@@ -100,7 +100,9 @@ pub fn parse_cfg_with_excel(
         tag_index,
         default_lang: input_cfg.default_lang,
         lang_index_map,
-        replace_all: input_cfg.replace_all,
+        reset: input_cfg.reset,
+        disable_escape: input_cfg.disable_escape,
+        escape_only: input_cfg.escape_only,
     })
 }
 
@@ -188,8 +190,7 @@ pub fn process_excel_single_lang(
                 .get_value()
                 .as_string()
                 .unwrap_or("".to_owned());
-            let value = replace_string(raw);
-            cur.value = Some(value);
+            cur.value = Some(raw);
         }
     }
 
@@ -253,14 +254,13 @@ pub fn process_excel_multi_lang(
                 .get_value()
                 .as_string()
                 .unwrap_or("".to_owned());
-            let value = replace_string(raw);
             match cur.value {
                 Some(ref mut map) => {
-                    map.insert(col, value);
+                    map.insert(col, raw);
                 }
                 None => {
                     let mut map = HashMap::new();
-                    map.insert(col, value);
+                    map.insert(col, raw);
                     cur.value = Some(map);
                 }
             }
@@ -278,9 +278,14 @@ pub fn process_excel_multi_lang(
     Ok(())
 }
 
-fn replace_string(origin: String) -> String {
+fn espace_string(origin: String) -> String {
     origin
         .replace("\n", "\\n") // 处理换行
         .replace(" ", " ") // 处理NBSP
+        // .replace("\\\\n","\\n")// \\n 文案中有可能已经转义过
+        // .replace("'", "\\'")
+        // .replace("\\\\'","\\'")//文案中有可能已经转义过
+        // .replace("\"", "\\\"")
+        // .replace("\\\\\"","\\\"")//文案中有可能已经转义过
         // todo ' -> &apos; " -> &quot;
 }

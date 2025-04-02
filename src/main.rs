@@ -7,34 +7,19 @@ mod find_files;
 mod read_excel;
 mod write_xml;
 
-// const CFG_JSON: &str = r#"
-// {
-//     "sheetName":"",
-//     "tagName": "Android tag",
-//     "defaultLang":"en",
-//     "langMap": {
-//         "zh": "中文简体",
-//         "zh-rTW": "中文繁体",
-//         "en": "英语",
-//         "ja": "日语",
-//         "ko-rKR": "韩语",
-//         "fr": "法语",
-//         "de": "德语",
-//         "es": "西班牙语",
-//         "it": "意大利语",
-//         "nl": "荷兰语"
-//     },
-//     "replaceAll": false
-// }
-// "#;
-
 fn main() {
-    // 读取配置文件json
-    let mut cfg_json:Option<String> = None;
-    // 读取Excel路径
-    let mut excel_path = String::new();
-    // 读取XML所在模块路径
-    let mut xml_dir_path = String::new();
+    // // 读取配置文件json
+    // let mut cfg_json: Option<String> = None;
+    // // 读取Excel路径
+    // let mut excel_path = String::new();
+    // // 读取XML所在模块路径
+    // let mut xml_dir_path = String::new();
+     // 读取配置文件json
+     let mut cfg_json: Option<String> = Some("/Users/jeff/RustProjects/parseExcel/cfg_json".to_string());
+     // 读取Excel路径
+     let mut excel_path = String::from("/Users/jeff/RustProjects/parseExcel/APP文案翻译汇总表2.1.xlsx");
+     // 读取XML所在模块路径
+     let mut xml_dir_path = String::from("/Users/jeff/StudioProjects/switchbot-rn/android/switchbot-common");
     let menu = "c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出";
     let json_prompt = "请输入配置文件路径:";
     let excel_prompt = "请输入Excel路径:";
@@ -81,9 +66,15 @@ fn main() {
             }
             "i" => {
                 if let Some(cfg) = &cfg_json {
-                    println!("当前配置 json:{} \nexcel:{} \nxml dir:{}", &cfg, &excel_path, &xml_dir_path);
+                    println!(
+                        "当前配置 json:{} \nexcel:{} \nxml dir:{}",
+                        &cfg, &excel_path, &xml_dir_path
+                    );
                 } else {
-                    println!("当前配置 json:{} \nexcel:{} \nxml dir:{}", "格式异常", &excel_path, &xml_dir_path);
+                    println!(
+                        "当前配置 json:{} \nexcel:{} \nxml dir:{}",
+                        "格式异常", &excel_path, &xml_dir_path
+                    );
                 }
             }
             "q" => {
@@ -112,6 +103,86 @@ fn update_cfg_json(prompt: &str) -> Option<String> {
         Err(e) => {
             println!("读取配置文件时出错: {:?}", e);
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn write() {
+        // 读取配置文件json
+        let mut cfg_json: Option<String> = Some("/Users/jeff/RustProjects/parseExcel/cfg_json".to_string());
+        // 读取Excel路径
+        let mut excel_path = String::from("/Users/jeff/RustProjects/parseExcel/APP文案翻译汇总表2.1.xlsx");
+        // 读取XML所在模块路径
+        let mut xml_dir_path = String::from("/Users/jeff/StudioProjects/switchbot-rn/android/switchbot-common");
+        let menu = "c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出";
+        let json_prompt = "请输入配置文件路径:";
+        let excel_prompt = "请输入Excel路径:";
+        let xml_prompt = "请输入XML所在模块路径:";
+        loop {
+            let input = prompt_user_input(menu);
+            match input.as_str() {
+                "c" => {
+                    cfg_json = update_cfg_json(json_prompt);
+                }
+                "x" => {
+                    excel_path = prompt_user_input(excel_prompt);
+                }
+                "t" => {
+                    xml_dir_path = prompt_user_input(xml_prompt);
+                }
+                "u" => {
+                    if let Some(cfg) = &cfg_json {
+                        // 统计耗时
+                        let start_time = std::time::Instant::now();
+                        match write_xml::update(cfg, &excel_path, &xml_dir_path) {
+                            Ok(_) => println!("更新成功"),
+                            Err(e) => println!("更新失败: {:?}", e),
+                        }
+                        let duration = start_time.elapsed();
+                        println!("同步耗时: {:?}", duration);
+                    } else {
+                        println!("配置文件路径无效");
+                    }
+                }
+                "qu" => {
+                    if let Some(cfg) = &cfg_json {
+                        // 统计耗时
+                        let start_time = std::time::Instant::now();
+                        match write_xml::quick_update(cfg, &excel_path, &xml_dir_path) {
+                            Ok(_) => println!("更新成功"),
+                            Err(e) => println!("更新失败: {:?}", e),
+                        }
+                        let duration = start_time.elapsed();
+                        println!("快速同步耗时: {:?}", duration);
+                    } else {
+                        println!("配置文件路径无效");
+                    }
+                }
+                "i" => {
+                    if let Some(cfg) = &cfg_json {
+                        println!(
+                            "当前配置 json:{} \nexcel:{} \nxml dir:{}",
+                            &cfg, &excel_path, &xml_dir_path
+                        );
+                    } else {
+                        println!(
+                            "当前配置 json:{} \nexcel:{} \nxml dir:{}",
+                            "格式异常", &excel_path, &xml_dir_path
+                        );
+                    }
+                }
+                "q" => {
+                    break;
+                }
+                _ => {
+                    println!("无效输入");
+                }
+            }
         }
     }
 }
