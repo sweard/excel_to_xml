@@ -34,6 +34,7 @@ fn main() {
     let json_prompt = "请输入json或文件路径:";
     let excel_prompt = "请输入Excel路径:";
     let xml_prompt = "请输入XML所在模块路径:";
+    println!("example_cfg: \n{}", config::CFG_JSON);
     println!("{}", menu);
     loop {
         let input = prompt_user_input("");
