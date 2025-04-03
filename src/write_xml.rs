@@ -12,6 +12,15 @@ use quick_xml::{
 };
 use regex::Regex;
 
+const XML_NAME: &str = "name";
+const XML_B_NAME: &[u8] = b"name";
+// 格式化相关常量
+const XML_NEWLINE: &str = "\n";
+const XML_INDENT: &str = "\n    ";
+const XML_STRING: &str = "string";
+const XML_B_STRING: &[u8] = b"string";
+const XML_RESOURCES: &str = "resources";
+const XML_B_RESOURCES: &[u8] = b"resources";
 
 #[derive(Default)]
 struct PathIndex {
@@ -252,8 +261,9 @@ fn update_xml_file(
     // 创建临时文件路径
     let temp_path = format!("{}.temp", path);
     // 正则表达式
-    let regex = if !is_blank(&parsed_cfg.regex) {
-        match Regex::new(r"^\s+|\s+$") {
+    let regex_str = &parsed_cfg.regex;
+    let regex = if !is_blank(regex_str) {
+        match Regex::new(regex_str) {
             Ok(regex) => Some(regex),
             Err(e) => {
                 println!("正则表达式错误: {:?}", e);
@@ -286,19 +296,19 @@ fn update_xml_file(
         xml_writer.write_event(Event::Decl(BytesDecl::new("1.0", Some("utf-8"), None)))?;
 
         // 2. 添加换行
-        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+        xml_writer.write_event(Event::Text(BytesText::new(XML_NEWLINE)))?;
 
         // 3. 打开resources标签
-        xml_writer.write_event(Event::Start(BytesStart::new("resources")))?;
+        xml_writer.write_event(Event::Start(BytesStart::new(XML_RESOURCES)))?;
 
         // 4. 按照tag_value_map写入所有标签
         for (tag, value) in tag_value_map {
             // 添加换行和缩进
-            xml_writer.write_event(Event::Text(BytesText::new("\n    ")))?;
+            xml_writer.write_event(Event::Text(BytesText::new(XML_INDENT)))?;
 
             // 创建string标签
-            let mut elem = BytesStart::new("string");
-            elem.push_attribute(("name", tag.as_str()));
+            let mut elem = BytesStart::new(XML_STRING);
+            elem.push_attribute((XML_NAME, tag.as_str()));
             xml_writer.write_event(Event::Start(elem))?;
             let write_value =
                 get_write_value(tag, value, default_valug_map, replace_blank_with_default);
@@ -309,24 +319,24 @@ fn update_xml_file(
                 escape_only,
                 &regex,
             )?;
-            xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
+            xml_writer.write_event(Event::End(BytesEnd::new(XML_STRING)))?;
         }
 
         // 5. 添加最后的换行
-        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+        xml_writer.write_event(Event::Text(BytesText::new(XML_NEWLINE)))?;
 
         // 6. 关闭resources标签
-        xml_writer.write_event(Event::End(BytesEnd::new("resources")))?;
+        xml_writer.write_event(Event::End(BytesEnd::new(XML_RESOURCES)))?;
     } else {
         // 更新XML文件
         loop {
             match xml_reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
-                    if e.name().as_ref() == b"string" {
+                    if e.name().as_ref() == XML_B_STRING {
                         // 提取name属性
                         for attr in e.attributes() {
                             if let Ok(attr) = attr {
-                                if attr.key.as_ref() == b"name" {
+                                if attr.key.as_ref() == XML_B_NAME {
                                     if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
                                         if tag_value_map.contains_key(tag_name) {
                                             current_tag_name = Some(tag_name.to_string());
@@ -340,7 +350,7 @@ fn update_xml_file(
                 }
 
                 Ok(Event::End(ref e)) => {
-                    if e.name().as_ref() == b"resources" {
+                    if e.name().as_ref() == XML_B_RESOURCES {
                         // 在关闭resources标签前添加缺失的标签
                         add_missing_tags(
                             &mut xml_writer,
@@ -423,11 +433,11 @@ fn add_missing_tags(
                 missing_tag_added = true;
             }
             // 为每个新标签添加缩进
-            xml_writer.write_event(Event::Text(BytesText::new("\n    ")))?;
+            xml_writer.write_event(Event::Text(BytesText::new(XML_INDENT)))?;
 
             // 创建新标签
-            let mut elem = BytesStart::new("string");
-            elem.push_attribute(("name", tag.as_str()));
+            let mut elem = BytesStart::new(XML_STRING);
+            elem.push_attribute((XML_NAME, tag.as_str()));
 
             xml_writer.write_event(Event::Start(elem))?;
             let write_value = get_write_value(
@@ -437,12 +447,12 @@ fn add_missing_tags(
                 parsed_cfg.replace_blank_with_default,
             );
             write_text(disable_escape, xml_writer, write_value, escape_only, regex)?;
-            xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
+            xml_writer.write_event(Event::End(BytesEnd::new(XML_STRING)))?;
         }
     }
     if missing_tag_added {
         // 如果写入了新tag，添加换行和缩进
-        xml_writer.write_event(Event::Text(BytesText::new("\n")))?;
+        xml_writer.write_event(Event::Text(BytesText::new(XML_NEWLINE)))?;
     }
     Ok(())
 }
