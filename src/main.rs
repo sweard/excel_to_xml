@@ -20,20 +20,22 @@ fn main() {
      let mut excel_path = String::from("/Users/jeff/RustProjects/parseExcel/APP文案翻译汇总表2.1.xlsx");
      // 读取XML所在模块路径
      let mut xml_dir_path = String::from("/Users/jeff/StudioProjects/switchbot-rn/android/switchbot-common");
-    let menu = "c:更新配置文件路径\nx:更新xlsx路径\nt:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nq:退出";
+    let menu = "c:更新配置文件路径\ne:更新xlsx路径\nx:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nm:菜单\nq:退出";
     let json_prompt = "请输入配置文件路径:";
     let excel_prompt = "请输入Excel路径:";
     let xml_prompt = "请输入XML所在模块路径:";
+    println!("欢迎使用xml更新工具");
+    println!("{}", menu);
     loop {
-        let input = prompt_user_input(menu);
+        let input = prompt_user_input("");
         match input.as_str() {
             "c" => {
                 cfg_json = update_cfg_json(json_prompt);
             }
-            "x" => {
+            "e" => {
                 excel_path = prompt_user_input(excel_prompt);
             }
-            "t" => {
+            "x" => {
                 xml_dir_path = prompt_user_input(xml_prompt);
             }
             "u" => {
@@ -89,7 +91,9 @@ fn main() {
 
 /// 提示用户输入并返回去除多余字符的字符串
 fn prompt_user_input(prompt: &str) -> String {
-    println!("{}", prompt);
+    if !prompt.is_empty() {
+        println!("{}", prompt);
+    }
     io::stdout().flush().expect("无法刷新标准输出");
     let mut input = String::new();
     io::stdin().read_line(&mut input).expect("读取输入时出错");

@@ -17,6 +17,7 @@ const FILTER: [&str; 2] = ["build", "mainland"];
 struct PathIndex {
     path: String,
     index: u32,
+    lang: String,
 }
 
 /// 获取解析后的数据
@@ -74,9 +75,23 @@ pub fn update(
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
 
+    let mut default_valug_map: HashMap<String, String> = HashMap::new();
+    let default_lang = &parsed_cfg.default_lang;
+    let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
+
+    let mut lang_index_map = parsed_cfg.lang_index_map.clone();
+    // 将默认语言移到第一个位置
+    if let Some(pos) = lang_index_map
+        .iter()
+        .position(|(lang, _)| &lang == &default_lang)
+    {
+        // 将默认语言换到第一个位置
+        lang_index_map.swap(0, pos);
+    }
+
     // 遍历语言索引映射
-    for (lang, index) in &parsed_cfg.lang_index_map {
-        let is_default_lang = lang == &parsed_cfg.default_lang;
+    for (lang, index) in &lang_index_map {
+        let is_default_lang = lang == default_lang;
         let end_point = if is_default_lang {
             "values/strings.xml".to_string()
         } else {
@@ -101,9 +116,16 @@ pub fn update(
             lang_index,
             &mut tag_value_map,
         )?;
-
-        // 处理XML文件
-        update_xml_file(path, &tag_value_map, &parsed_cfg)?;
+        // 如果是默认语言，将tag_value_map的内容复制到default_valug_map
+        // 以便后续处理空值
+        if is_default_lang && replace_blank_with_default {
+            // 处理默认语言,使用空default_valug_map
+            update_xml_file(path, &tag_value_map, &default_valug_map, &parsed_cfg)?;
+            default_valug_map = tag_value_map.clone();
+        } else {
+            // 处理XML文件
+            update_xml_file(path, &tag_value_map, &default_valug_map, &parsed_cfg)?;
+        }
     }
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
@@ -139,9 +161,12 @@ pub fn quick_update(
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);
     let mut path_index_vec: Vec<PathIndex> = Vec::with_capacity(paths.len());
+    let default_lang = &parsed_cfg.default_lang;
+    let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
+    let mut default_valug_map: HashMap<String, String> = HashMap::new();
     // 遍历语言索引映射
     for (lang, index) in &parsed_cfg.lang_index_map {
-        let is_default_lang = lang == &parsed_cfg.default_lang;
+        let is_default_lang = lang == default_lang;
         let end_point = if is_default_lang {
             "values/strings.xml".to_string()
         } else {
@@ -156,6 +181,7 @@ pub fn quick_update(
         let path_index = PathIndex {
             path: path.to_string(),
             index: *index,
+            lang: lang.to_string(),
         };
         path_index_vec.push(path_index);
     }
@@ -169,14 +195,34 @@ pub fn quick_update(
         &mut tag_value_map,
     )?;
     println!("tag_value_map size: {}", tag_value_map.len());
+    if let Some(pos) = path_index_vec.iter().position(|p| &p.lang == default_lang) {
+        // 默认语言在生成时，已被移动到index 0
+        path_index_vec.swap(0, pos);
+    }
+
+    // 处理XML文件
     path_index_vec.iter().for_each(|p| {
         let index = p.index;
         let path = &p.path;
+        let lang = &p.lang;
         let mut write_map: HashMap<String, String> = HashMap::new();
         tag_value_map.iter().for_each(|(tag, map)| {
             write_map.insert(tag.to_string(), map.get(&index).unwrap().to_string());
         });
-        let res = update_xml_file(path, &write_map, &parsed_cfg);
+
+        let is_default_lang = lang == default_lang;
+        // 如果是默认语言，将tag_value_map的内容复制到default_valug_map
+        // 以便后续处理空值
+        let res = if is_default_lang && replace_blank_with_default {
+            // 处理默认语言,使用空default_valug_map
+            let res = update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg);
+            // 处理完后，默认语言的值会被复制到default_valug_map
+            default_valug_map = write_map.clone();
+            res
+        } else {
+            update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg)
+        };
+        write_map.clear(); // 清空map
         if res.is_err() {
             println!(
                 "更新XML文件失败,lang index: {}, err: {:?}",
@@ -195,6 +241,7 @@ pub fn quick_update(
 fn update_xml_file(
     path: &str,
     tag_value_map: &HashMap<String, String>,
+    default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 创建临时文件路径
@@ -213,6 +260,7 @@ fn update_xml_file(
     let mut current_tag_name = None;
     let mut updated_tags = HashSet::new();
 
+    let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
     let disable_escape = parsed_cfg.disable_escape;
     let escape_only = &parsed_cfg.escape_only;
     if parsed_cfg.reset {
@@ -235,7 +283,9 @@ fn update_xml_file(
             let mut elem = BytesStart::new("string");
             elem.push_attribute(("name", tag.as_str()));
             xml_writer.write_event(Event::Start(elem))?;
-            write_text(disable_escape, &mut xml_writer, value, escape_only)?;
+            let write_value =
+                get_write_value(tag, value, default_valug_map, replace_blank_with_default);
+            write_text(disable_escape, &mut xml_writer, write_value, escape_only)?;
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
 
@@ -272,6 +322,7 @@ fn update_xml_file(
                         add_missing_tags(
                             &mut xml_writer,
                             tag_value_map,
+                            default_valug_map,
                             &updated_tags,
                             parsed_cfg,
                         )?;
@@ -292,14 +343,18 @@ fn update_xml_file(
                     // 更新文本内容
                     match tag_value_map.get(tag_name) {
                         Some(value) if !value.is_empty() => {
-                            write_text(disable_escape, &mut xml_writer, value, escape_only)?;
-                            // xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
+                            let write_value = get_write_value(
+                                tag_name,
+                                value,
+                                default_valug_map,
+                                replace_blank_with_default,
+                            );
+                            write_text(disable_escape, &mut xml_writer, write_value, escape_only)?;
                         }
                         _ => {
                             xml_writer.write_event(Event::Text(e.to_owned()))?;
                         }
                     }
-
                     current_tag_name = None;
                 }
 
@@ -323,12 +378,12 @@ fn update_xml_file(
 fn add_missing_tags(
     xml_writer: &mut Writer<BufWriter<File>>,
     tag_value_map: &HashMap<String, String>,
+    default_valug_map: &HashMap<String, String>,
     updated_tags: &HashSet<String>,
     parsed_cfg: &ParsedCfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let disable_escape = parsed_cfg.disable_escape;
     let escape_only = &parsed_cfg.escape_only;
-    println!("escape_only: {:?}", escape_only);
     let mut missing_tag_added = false;
     for (tag, value) in tag_value_map {
         if !updated_tags.contains(tag) {
@@ -344,9 +399,13 @@ fn add_missing_tags(
             elem.push_attribute(("name", tag.as_str()));
 
             xml_writer.write_event(Event::Start(elem))?;
-            println!("add_missing_tags tag: {}, value: {}", tag, value);
-            // xml_writer.write_event(Event::Text(BytesText::new(value)))?;
-            write_text(disable_escape, xml_writer, value, escape_only)?;
+            let write_value = get_write_value(
+                tag,
+                value,
+                default_valug_map,
+                parsed_cfg.replace_blank_with_default,
+            );
+            write_text(disable_escape, xml_writer, write_value, escape_only)?;
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
     }
@@ -357,7 +416,12 @@ fn add_missing_tags(
     Ok(())
 }
 
-fn write_text(disable_escape: bool, xml_writer: &mut Writer<BufWriter<File>>, value: &str, escape_only: &Vec<(String, String)>)->Result<(), Box<dyn std::error::Error>> {
+fn write_text(
+    disable_escape: bool,
+    xml_writer: &mut Writer<BufWriter<File>>,
+    value: &str,
+    escape_only: &Vec<(String, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if disable_escape {
         // 直接写入文本内容，不会再自动转义
         xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
@@ -375,4 +439,25 @@ fn write_text(disable_escape: bool, xml_writer: &mut Writer<BufWriter<File>>, va
         }
     }
     Ok(())
+}
+
+fn is_blank(value: &str) -> bool {
+    value.trim().is_empty()
+}
+
+fn get_write_value<'a>(
+    tag: &String,
+    value: &'a String,
+    default_valug_map: &'a HashMap<String, String>,
+    replace_blank_with_default: bool,
+) -> &'a String {
+    if is_blank(value) && !default_valug_map.is_empty() && replace_blank_with_default {
+        // 如果值为空，尝试使用默认语言的值替换
+        match default_valug_map.get(tag) {
+            Some(default_value) => default_value,
+            None => value,
+        }
+    } else {
+        value
+    }
 }

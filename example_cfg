@@ -27,5 +27,6 @@
         ">":"&gt;",
         "<":"&lt;"
     },
-    "reset": false
+    "reset": false,
+    "replaceBlankWithDefault": true
 }

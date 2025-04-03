@@ -94,15 +94,18 @@ pub fn parse_cfg_with_excel(
 
     // 查找语言索引
     let lang_index_map = find_language_indices(&first_row, &input_cfg.lang_map.as_slice());
+    let default_lang = input_cfg.default_lang;
+
     // 构建解析后的配置
     Ok(ParsedCfg {
         sheet_name: input_cfg.sheet_name,
         tag_index,
-        default_lang: input_cfg.default_lang,
+        default_lang,
         lang_index_map,
         reset: input_cfg.reset,
         disable_escape: input_cfg.disable_escape,
         escape_only: input_cfg.escape_only,
+        replace_blank_with_default: input_cfg.replace_blank_with_default,
     })
 }
 
@@ -186,10 +189,7 @@ pub fn process_excel_single_lang(
         if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if col == lang_index {
-            let raw = cell
-                .get_value()
-                .as_string()
-                .unwrap_or("".to_owned());
+            let raw = cell.get_value().as_string().unwrap_or("".to_owned());
             cur.value = Some(raw);
         }
     }
@@ -250,10 +250,7 @@ pub fn process_excel_multi_lang(
         if col == tag_index {
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if lang_index_vec.contains(&col) {
-            let raw = cell
-                .get_value()
-                .as_string()
-                .unwrap_or("".to_owned());
+            let raw = cell.get_value().as_string().unwrap_or("".to_owned());
             match cur.value {
                 Some(ref mut map) => {
                     map.insert(col, raw);

@@ -3,7 +3,7 @@ use std::error::Error;
 
 const CFG_JSON: &str = r#"
 {
-    "sheetName":"sheetName",
+    "sheetName":"",
     "tagName": "Android tag",
     "defaultLang":"en",
     "langMap": {
@@ -20,15 +20,19 @@ const CFG_JSON: &str = r#"
     },
     "disableEscape": false,
     "escapeOnly":{
+        "\\\n":"\\n",
         "\n":"\\n",
-        "\\\\n":"\\n",
-        "'":"\\'",
         "\\\\'":"\\'",
-        "\"":"\\\"",
+        "'":"\\'",
         "\\\\\"":"\\\"",
-        " ":" "
+        "\"":"\\\"",
+        " ":" ",
+        "&":"&amp;",
+        ">":"&gt;",
+        "<":"&lt;"
     },
-    "reset": false
+    "reset": false,
+    "replaceBlankWithDefault": true
 }
 "#;
 
@@ -44,6 +48,7 @@ pub struct InputCfg {
     pub reset: bool,                        // 是否替换所有
     pub disable_escape: bool,               // 是否禁用转义
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
+    pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
 }
 
 impl InputCfg {
@@ -99,7 +104,12 @@ impl InputCfg {
             .iter()
             .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
             .collect();
-        
+
+        let replace_blank_with_default = json_obj
+            .get("replaceBlankWithDefault")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         Ok(InputCfg {
             sheet_name,
             tag_name,
@@ -108,6 +118,7 @@ impl InputCfg {
             reset,
             disable_escape,
             escape_only,
+            replace_blank_with_default,
         })
     }
 }
@@ -124,6 +135,7 @@ pub struct ParsedCfg {
     pub reset: bool,                  // 是否替换所有
     pub disable_escape: bool, // 是否禁用转义
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
+    pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
 }
 
 #[cfg(test)]
@@ -169,6 +181,7 @@ mod tests {
             reset: false,
             disable_escape: false,
             escape_only: expected_escape_only,
+            replace_blank_with_default: true,
         };
         println!("excepted-->{:?}", expected_config);
         let parsed_config = InputCfg::from_json(json_data).expect("Failed to parse JSON");
