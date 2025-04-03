@@ -12,7 +12,6 @@ use quick_xml::{
 };
 use regex::Regex;
 
-const FILTER: [&str; 2] = ["build", "mainland"];
 
 #[derive(Default)]
 struct PathIndex {
@@ -37,7 +36,12 @@ fn get_parsed_data<'a>(
     }
     let parsed_cfg = cfg.unwrap();
     println!("解析配置成功: {:?}", parsed_cfg);
-    let forder = find_files::find_target_folder(&xml_dir_path, "res", &FILTER);
+    let ignore_folders: Vec<&str> = parsed_cfg.ignore_folder.iter().map(|s| s.as_str()).collect();
+    let forder = find_files::find_target_folder(
+        &xml_dir_path,
+        "res",
+        &ignore_folders,
+    );
     if forder.is_none() {
         println!("未找到res文件夹");
         return None;

@@ -29,5 +29,9 @@
     },
     "reset": false,
     "replaceBlankWithDefault": true,
-    "regex":"^\\s+|\\s+$"
+    "regex":"^\\s+|\\s+$",
+    "ignoreFolder": [
+        "build",
+        "mainland"
+    ]
 }
