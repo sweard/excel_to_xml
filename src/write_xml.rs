@@ -234,26 +234,8 @@ fn update_xml_file(
             // 创建string标签
             let mut elem = BytesStart::new("string");
             elem.push_attribute(("name", tag.as_str()));
-
             xml_writer.write_event(Event::Start(elem))?;
-            // if disable_escape {
-            //     // 直接写入文本内容，不会再自动转义
-            //     xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
-            // } else {
-            //     if escape_only.is_empty() {
-            //         // 转义所有内容
-            //         xml_writer.write_event(Event::Text(BytesText::new(value)))?;
-            //     } else {
-            //         // 只转义指定的内容
-            //         let mut escaped_value = value.to_string();
-            //         for (key, val) in &escape_only {
-            //             escaped_value = escaped_value.replace(key, val);
-            //         }
-            //         xml_writer.write_event(Event::Text(BytesText::from_escaped(&escaped_value)))?;
-            //     }
-            // }
             write_text(disable_escape, &mut xml_writer, value, escape_only)?;
-            
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
 

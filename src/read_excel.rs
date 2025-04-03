@@ -277,15 +277,3 @@ pub fn process_excel_multi_lang(
 
     Ok(())
 }
-
-fn espace_string(origin: String) -> String {
-    origin
-        .replace("\n", "\\n") // 处理换行
-        .replace(" ", " ") // 处理NBSP
-        // .replace("\\\\n","\\n")// \\n 文案中有可能已经转义过
-        // .replace("'", "\\'")
-        // .replace("\\\\'","\\'")//文案中有可能已经转义过
-        // .replace("\"", "\\\"")
-        // .replace("\\\\\"","\\\"")//文案中有可能已经转义过
-        // todo ' -> &apos; " -> &quot;
-}
