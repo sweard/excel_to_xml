@@ -1,4 +1,4 @@
-use crate::config::{InputCfg, ParsedCfg};
+use crate::config::ParsedCfg;
 use calamine::{open_workbook, DataType, Reader, Xlsx};
 use std::collections::HashMap;
 use std::error::Error;
@@ -57,7 +57,7 @@ pub fn parse_cfg_with_excel(
     config_json: &str,
 ) -> Result<ParsedCfg, Box<dyn Error>> {
     // 解析配置JSON
-    let input_cfg = InputCfg::from_json(config_json)?;
+    let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
 
     // 打开Excel文件并获取工作表
     let (mut workbook, sheet_name) = open_excel_workbook(file_path)?;
@@ -90,24 +90,13 @@ pub fn parse_cfg_with_excel(
     println!("header_cells: {:?}", first_row);
 
     // 查找标签索引
-    let tag_index = find_tag_index(&first_row, &input_cfg.tag_name)?;
+    let tag_index = find_tag_index(&first_row, &parsed_cfg.tag_name)?;
 
     // 查找语言索引
-    let lang_index_map = find_language_indices(&first_row, &input_cfg.lang_map.as_slice());
-    let default_lang = input_cfg.default_lang;
-
-    // 构建解析后的配置
-    Ok(ParsedCfg {
-        sheet_name: input_cfg.sheet_name,
-        tag_index,
-        default_lang,
-        lang_index_map,
-        reset: input_cfg.reset,
-        disable_escape: input_cfg.disable_escape,
-        escape_only: input_cfg.escape_only,
-        replace_blank_with_default: input_cfg.replace_blank_with_default,
-        regex: input_cfg.regex,
-    })
+    let lang_index_map = find_language_indices(&first_row, &parsed_cfg.lang_map);
+    parsed_cfg.tag_index = tag_index;
+    parsed_cfg.lang_index_map = lang_index_map;
+    Ok(parsed_cfg)
 }
 
 /// 打开Excel文件并获取第一个工作表名称

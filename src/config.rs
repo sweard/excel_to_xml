@@ -1,7 +1,6 @@
 use serde_json::{from_str, Value};
 use std::error::Error;
 
-
 pub const CFG_JSON: &str = r#"{
     "sheetName":"",
     "tagName": "Android tag",
@@ -37,27 +36,28 @@ pub const CFG_JSON: &str = r#"{
 }"#;
 
 /**
- * 输入的配置
+ * 解析完excel后生成的配置
  */
 #[derive(Debug, PartialEq)]
-pub struct InputCfg {
+pub struct ParsedCfg {
     pub sheet_name: String,                 // 表名
-    pub tag_name: String,                   // 标签名称
     pub default_lang: String,               // 默认语言
-    pub lang_map: Vec<(String, String)>,    // 语言名称 zh-cn,中文
     pub reset: bool,                        // 是否替换所有
     pub disable_escape: bool,               // 是否禁用转义
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
-    pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
+    pub replace_blank_with_default: bool,   // 是否替换空白内容为默认语言
     pub regex: String,                      // 正则表达式
+
+    // 输入配置字段 (原InputCfg特有)
+    pub tag_name: String,                // 标签列名称
+    pub lang_map: Vec<(String, String)>, // 语言名称 zh - 简体中文
+
+    // 解析后的字段 (原ParsedCfg特有)
+    pub tag_index: u32,                     // 标签序号 excel中的序号
+    pub lang_index_map: Vec<(String, u32)>, // 语言名称 zh - 0（excel中的序号）
 }
 
-impl InputCfg {
-    /**
-     * {"tagName":"Android tag",
-     * "langMap":{"zh":"中文简体","zh-rTW":"中文繁体","en":"英语","ja":"日语","ko-rKR":"韩语","fr":"法语","de":"德语","es":"西班牙语","it":"意大利语","nl":"荷兰语"},
-     * "replaceAll":false}
-     */
+impl ParsedCfg {
     pub fn from_json(json: &str) -> Result<Self, Box<dyn Error>> {
         let parsed_json: Value = from_str(json)?;
         let json_obj = parsed_json.as_object().ok_or("Invalid JSON format")?;
@@ -117,7 +117,7 @@ impl InputCfg {
             .unwrap_or("")
             .to_string();
 
-        Ok(InputCfg {
+        Ok(ParsedCfg {
             sheet_name,
             tag_name,
             default_lang,
@@ -126,25 +126,11 @@ impl InputCfg {
             disable_escape,
             escape_only,
             replace_blank_with_default,
-            regex
+            regex,
+            tag_index: 0,           // 默认值
+            lang_index_map: vec![], // 默认值
         })
     }
-}
-
-/**
- * 解析完excel后生成的配置
- */
-#[derive(Debug, PartialEq)]
-pub struct ParsedCfg {
-    pub sheet_name: String,                 // 表名
-    pub tag_index: u32,                     // 标签序号 excel中的序号
-    pub default_lang: String,               // 默认语言
-    pub lang_index_map: Vec<(String, u32)>, // 语言名称 zh-cn, excel中的序号
-    pub reset: bool,                  // 是否替换所有
-    pub disable_escape: bool, // 是否禁用转义
-    pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
-    pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
-    pub regex: String, // 正则表达式
 }
 
 #[cfg(test)]
@@ -182,7 +168,7 @@ mod tests {
         .to_vec();
         expected_escape_only.sort();
 
-        let expected_config = InputCfg {
+        let expected_config = ParsedCfg {
             sheet_name: "sheetName".to_string(),
             tag_name: "Android tag".to_string(),
             default_lang: "en".to_string(),
@@ -192,9 +178,11 @@ mod tests {
             escape_only: expected_escape_only,
             replace_blank_with_default: true,
             regex: "".to_string(),
+            tag_index: 0,
+            lang_index_map: vec![],
         };
         println!("excepted-->{:?}", expected_config);
-        let parsed_config = InputCfg::from_json(json_data).expect("Failed to parse JSON");
+        let parsed_config = ParsedCfg::from_json(json_data).expect("Failed to parse JSON");
         println!("parsed--->{:?}", parsed_config);
         assert_eq!(parsed_config, expected_config);
     }
