@@ -52,7 +52,7 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: excel-to-xml-${{ needs.build.outputs.version }}-linux-amd64
+            name: excel-to-xml-${{ needs.build.outputs.version }}-linux-x86_64
           
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -60,7 +60,7 @@ jobs:
           
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: excel-to-xml-${{ needs.build.outputs.version }}-windows-amd64.exe
+            name: excel-to-xml-${{ needs.build.outputs.version }}-windows-x86_64.exe
 
     steps:
       - uses: actions/checkout@v4
