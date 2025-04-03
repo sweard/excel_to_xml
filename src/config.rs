@@ -1,8 +1,8 @@
 use serde_json::{from_str, Value};
 use std::error::Error;
 
-const CFG_JSON: &str = r#"
-{
+
+pub const CFG_JSON: &str = r#"{
     "sheetName":"",
     "tagName": "Android tag",
     "defaultLang":"en",
@@ -33,9 +33,8 @@ const CFG_JSON: &str = r#"
     },
     "reset": false,
     "replaceBlankWithDefault": true,
-    "regex:""
-}
-"#;
+    "regex":"^\\s+|\\s+$"
+}"#;
 
 /**
  * 输入的配置
