@@ -11,3 +11,5 @@ calamine = "0.26.1"
 serde_json = "1.0.140"
 # xml读写
 quick-xml = "0.37.3"
+# 正则表达式
+regex = "1.11.1"

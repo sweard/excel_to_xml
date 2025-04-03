@@ -8,18 +8,13 @@ mod read_excel;
 mod write_xml;
 
 fn main() {
-    // // 读取配置文件json
-    // let mut cfg_json: Option<String> = None;
-    // // 读取Excel路径
-    // let mut excel_path = String::new();
-    // // 读取XML所在模块路径
-    // let mut xml_dir_path = String::new();
-     // 读取配置文件json
-     let mut cfg_json: Option<String> = Some("/Users/jeff/RustProjects/parseExcel/cfg_json".to_string());
-     // 读取Excel路径
-     let mut excel_path = String::from("/Users/jeff/RustProjects/parseExcel/APP文案翻译汇总表2.1.xlsx");
-     // 读取XML所在模块路径
-     let mut xml_dir_path = String::from("/Users/jeff/StudioProjects/switchbot-rn/android/switchbot-common");
+    // 读取配置文件json
+    let mut cfg_json: Option<String> = None;
+    // 读取Excel路径
+    let mut excel_path = String::new();
+    // 读取XML所在模块路径
+    let mut xml_dir_path = String::new();
+
     let menu = "c:更新配置文件路径\ne:更新xlsx路径\nx:更新xml所在文件夹路径\nu:同步\nqu:快速同步（内存占用多一点）\ni:查看当前配置信息\nm:菜单\nq:退出";
     let json_prompt = "请输入配置文件路径:";
     let excel_prompt = "请输入Excel路径:";

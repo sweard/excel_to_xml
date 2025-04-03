@@ -32,7 +32,8 @@ const CFG_JSON: &str = r#"
         "<":"&lt;"
     },
     "reset": false,
-    "replaceBlankWithDefault": true
+    "replaceBlankWithDefault": true,
+    "regex:""
 }
 "#;
 
@@ -49,6 +50,7 @@ pub struct InputCfg {
     pub disable_escape: bool,               // 是否禁用转义
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
     pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
+    pub regex: String,                      // 正则表达式
 }
 
 impl InputCfg {
@@ -110,6 +112,12 @@ impl InputCfg {
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
+        let regex = json_obj
+            .get("regex")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+
         Ok(InputCfg {
             sheet_name,
             tag_name,
@@ -119,6 +127,7 @@ impl InputCfg {
             disable_escape,
             escape_only,
             replace_blank_with_default,
+            regex
         })
     }
 }
@@ -136,6 +145,7 @@ pub struct ParsedCfg {
     pub disable_escape: bool, // 是否禁用转义
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
     pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
+    pub regex: String, // 正则表达式
 }
 
 #[cfg(test)]
@@ -182,6 +192,7 @@ mod tests {
             disable_escape: false,
             escape_only: expected_escape_only,
             replace_blank_with_default: true,
+            regex: "".to_string(),
         };
         println!("excepted-->{:?}", expected_config);
         let parsed_config = InputCfg::from_json(json_data).expect("Failed to parse JSON");

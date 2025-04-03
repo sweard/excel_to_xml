@@ -28,5 +28,6 @@
         "<":"&lt;"
     },
     "reset": false,
-    "replaceBlankWithDefault": true
+    "replaceBlankWithDefault": true,
+    "regex":"^\\s+|\\s+$"
 }

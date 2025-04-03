@@ -106,6 +106,7 @@ pub fn parse_cfg_with_excel(
         disable_escape: input_cfg.disable_escape,
         escape_only: input_cfg.escape_only,
         replace_blank_with_default: input_cfg.replace_blank_with_default,
+        regex: input_cfg.regex,
     })
 }
 

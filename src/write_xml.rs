@@ -10,6 +10,7 @@ use quick_xml::{
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
     Writer,
 };
+use regex::Regex;
 
 const FILTER: [&str; 2] = ["build", "mainland"];
 
@@ -246,6 +247,18 @@ fn update_xml_file(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 创建临时文件路径
     let temp_path = format!("{}.temp", path);
+    // 正则表达式
+    let regex = if !is_blank(&parsed_cfg.regex) {
+        match Regex::new(r"^\s+|\s+$") {
+            Ok(regex) => Some(regex),
+            Err(e) => {
+                println!("正则表达式错误: {:?}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // 打开原始XML文件和临时文件
     let file = File::open(path)?;
@@ -285,7 +298,13 @@ fn update_xml_file(
             xml_writer.write_event(Event::Start(elem))?;
             let write_value =
                 get_write_value(tag, value, default_valug_map, replace_blank_with_default);
-            write_text(disable_escape, &mut xml_writer, write_value, escape_only)?;
+            write_text(
+                disable_escape,
+                &mut xml_writer,
+                write_value,
+                escape_only,
+                &regex,
+            )?;
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
 
@@ -325,6 +344,7 @@ fn update_xml_file(
                             default_valug_map,
                             &updated_tags,
                             parsed_cfg,
+                            &regex,
                         )?;
                     }
                     xml_writer.write_event(Event::End(e.to_owned()))?;
@@ -349,7 +369,13 @@ fn update_xml_file(
                                 default_valug_map,
                                 replace_blank_with_default,
                             );
-                            write_text(disable_escape, &mut xml_writer, write_value, escape_only)?;
+                            write_text(
+                                disable_escape,
+                                &mut xml_writer,
+                                write_value,
+                                escape_only,
+                                &regex,
+                            )?;
                         }
                         _ => {
                             xml_writer.write_event(Event::Text(e.to_owned()))?;
@@ -381,6 +407,7 @@ fn add_missing_tags(
     default_valug_map: &HashMap<String, String>,
     updated_tags: &HashSet<String>,
     parsed_cfg: &ParsedCfg,
+    regex: &Option<Regex>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let disable_escape = parsed_cfg.disable_escape;
     let escape_only = &parsed_cfg.escape_only;
@@ -405,7 +432,7 @@ fn add_missing_tags(
                 default_valug_map,
                 parsed_cfg.replace_blank_with_default,
             );
-            write_text(disable_escape, xml_writer, write_value, escape_only)?;
+            write_text(disable_escape, xml_writer, write_value, escape_only, regex)?;
             xml_writer.write_event(Event::End(BytesEnd::new("string")))?;
         }
     }
@@ -421,14 +448,21 @@ fn write_text(
     xml_writer: &mut Writer<BufWriter<File>>,
     value: &str,
     escape_only: &Vec<(String, String)>,
+    regex: &Option<Regex>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let value = if let Some(regex) = regex {
+        // 使用正则表达式替换
+        regex.replace_all(value, "").to_string()
+    } else {
+        value.to_string()
+    };
     if disable_escape {
         // 直接写入文本内容，不会再自动转义
         xml_writer.write_event(Event::Text(BytesText::from_escaped(value)))?;
     } else {
         if escape_only.is_empty() {
             // 转义所有内容
-            xml_writer.write_event(Event::Text(BytesText::new(value)))?;
+            xml_writer.write_event(Event::Text(BytesText::new(&value)))?;
         } else {
             // 只转义指定的内容
             let mut escaped_value = value.to_string();
