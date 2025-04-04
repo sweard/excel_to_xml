@@ -41,7 +41,9 @@ jobs:
             - Windows (x64)
             - macOS (arm64)
             - Linux (x64)
-
+            
+            ### 日志
+            修复了配置文件中，正则表达式不生效的问题
   build-release:
     name: Build ${{ matrix.target }}
     needs: build
