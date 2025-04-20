@@ -33,5 +33,6 @@
     "ignoreFolder": [
         "build",
         "mainland"
-    ]
+    ],
+    "targetFolder": "res"
 }

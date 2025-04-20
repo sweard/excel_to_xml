@@ -45,18 +45,19 @@ fn get_parsed_data<'a>(
     }
     let parsed_cfg = cfg.unwrap();
     println!("解析配置成功: {:?}", parsed_cfg);
+    let target_folder = &parsed_cfg.target_folder;
     let ignore_folders: Vec<&str> = parsed_cfg.ignore_folder.iter().map(|s| s.as_str()).collect();
     let forder = find_files::find_target_folder(
         &xml_dir_path,
-        "res",
+        target_folder,
         &ignore_folders,
     );
     if forder.is_none() {
-        println!("未找到res文件夹");
+        println!("未找到目标文件夹");
         return None;
     }
     let res_folder = forder.unwrap();
-    println!("找到res文件夹: {}", res_folder);
+    println!("找到目标文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
     return Some((excel_path, parsed_cfg, paths));
 }
