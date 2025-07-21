@@ -87,7 +87,7 @@ pub fn parse_cfg_with_excel(
     if first_row.is_empty() {
         return Err(Box::new(ExcelError::InvalidFirstLine));
     }
-    println!("header_cells: {:?}", first_row);
+    println!("header_cells: {:?}\n", first_row);
 
     // 查找标签索引
     let tag_index = find_tag_index(&first_row, &parsed_cfg.tag_name)?;

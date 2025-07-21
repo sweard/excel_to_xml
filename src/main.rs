@@ -13,12 +13,7 @@ fn main() {
     let is_debug = cfg!(debug_assertions);
 
     // 读取json，或json文件
-    let mut cfg_json: String = if is_debug {
-        config::CFG_JSON.to_string()
-        // "/Users/jeff/RustProjects/excel_to_xml/example_cfg".to_string()
-    } else {
-        "".to_string()
-    };
+    let mut cfg_json: String = config::CFG_JSON.to_string();
 
     // 读取Excel路径
     let mut excel_path = if is_debug {

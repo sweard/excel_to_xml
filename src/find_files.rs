@@ -36,7 +36,7 @@ pub fn collect_target_files(path: &str, target_dir_name: &str, target: &str) -> 
                 .find_map(|file| {
                     let file_path = file.path();
                     if file_path.is_file() && file_path.to_str()?.ends_with(target) {
-                        println!("找到目标文件: {}", file_path.display());
+                        println!("符合后缀的文件: {}", file_path.display());
                         Some(file_path.to_str()?.to_string())
                     } else {
                         None

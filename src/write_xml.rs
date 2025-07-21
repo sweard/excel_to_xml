@@ -44,7 +44,7 @@ fn get_parsed_data<'a>(
         return None;
     }
     let parsed_cfg = cfg.unwrap();
-    println!("解析配置成功: {:?}", parsed_cfg);
+    println!("解析配置成功: {:?}\n", parsed_cfg);
     let target_folder = &parsed_cfg.target_folder;
     let ignore_folders: Vec<&str> = parsed_cfg.ignore_folder.iter().map(|s| s.as_str()).collect();
     let forder = find_files::find_target_folder(
@@ -59,6 +59,7 @@ fn get_parsed_data<'a>(
     let res_folder = forder.unwrap();
     println!("找到目标文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
+    println!("");
     return Some((excel_path, parsed_cfg, paths));
 }
 
@@ -70,7 +71,7 @@ pub fn update(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
         Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
-        None => return Ok(()),
+        None => return Err("获取解析数据失败".into()),
     };
     let tag_index = parsed_cfg.tag_index;
     // 预先打开Excel文件，只打开一次
@@ -116,7 +117,11 @@ pub fn update(
         // 查找匹配的XML文件路径
         let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
             Some(path) => path,
-            None => continue, // 没找到对应语言的文件，跳过这个语言
+            None => {
+                // 没找到对应语言的文件，跳过这个语言
+                println!("未找到对应语言的XML文件: {}", end_point);
+                continue;
+            }, 
         };
 
         // 清空map，准备复用
@@ -155,7 +160,7 @@ pub fn quick_update(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
         Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
-        None => return Ok(()),
+        None => return Err("获取解析数据失败".into()),
     };
     let tag_index = parsed_cfg.tag_index;
 
@@ -191,7 +196,10 @@ pub fn quick_update(
         // 查找匹配的XML文件路径
         let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
             Some(path) => path,
-            None => continue, // 没找到对应语言的文件，跳过这个语言
+            None => {
+                println!("未找到对应语言的XML文件: {}", end_point);
+                continue;
+            }
         };
         let path_index = PathIndex {
             path: path.to_string(),
@@ -259,6 +267,7 @@ fn update_xml_file(
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    println!("更新XML文件: {}", path);
     // 创建临时文件路径
     let temp_path = format!("{}.temp", path);
     // 正则表达式
