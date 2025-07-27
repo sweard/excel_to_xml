@@ -56,6 +56,7 @@ pub fn parse_cfg_with_excel(
     file_path: &str,
     config_json: &str,
 ) -> Result<ParsedCfg, Box<dyn Error>> {
+    println!("开始解析Excel文件: {} config_json: {}", file_path, config_json);
     // 解析配置JSON
     let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
 
@@ -85,6 +86,7 @@ pub fn parse_cfg_with_excel(
         }
     }
     if first_row.is_empty() {
+        println!("工作表为空或没有数据");
         return Err(Box::new(ExcelError::InvalidFirstLine));
     }
     println!("header_cells: {:?}\n", first_row);

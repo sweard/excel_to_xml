@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::{remove_file, rename, File},
+    fs::{self, remove_file, rename, File},
     io::{BufReader, BufWriter},
 };
 
@@ -38,7 +38,16 @@ fn get_parsed_data<'a>(
     excel_path: &'a str,
     xml_dir_path: &str,
 ) -> Option<(&'a str, ParsedCfg, Vec<String>)> {
-    let cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json);
+    // cfg_json 如果是路径，则读取文件内容，否者当做字符串处理
+    let cfg_json = match fs::read_to_string(&cfg_json) {
+        Ok(content) => content,
+        Err(e) => {
+            println!("输入不是文件: {:?}", e);
+            // 返回输入的内容
+            cfg_json.to_string()
+        }
+    };
+    let cfg = read_excel::parse_cfg_with_excel(excel_path, &cfg_json);
     if cfg.is_err() {
         println!("解析配置时出错: {:?}", cfg.err());
         return None;
