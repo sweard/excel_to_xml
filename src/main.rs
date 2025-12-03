@@ -15,7 +15,6 @@ fn main() {
     // 读取json，或json文件
     let mut cfg_json: String = if is_debug {
         config::CFG_JSON.to_string()
-        // "/Users/jeff/RustProjects/excel_to_xml/example_cfg".to_string()
     } else {
         "".to_string()
     };

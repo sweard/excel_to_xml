@@ -60,10 +60,25 @@ pub fn parse_cfg_with_excel(
     let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
 
     // 打开Excel文件并获取工作表
-    let (mut workbook, sheet_name) = open_excel_workbook(file_path)?;
+    let mut workbook = open_excel_workbook(file_path)?;
+
+    let sheet_names = workbook.sheet_names();
+    let mut sheet_name = &parsed_cfg.sheet_name;
+    if sheet_name.is_empty() {
+         sheet_name = sheet_names
+        .get(0)
+        .ok_or_else(|| Box::new(ExcelError::NoSheetsFound))?
+    }
 
     // 获取cell_reader迭代器
-    let mut cell_reader = workbook.worksheet_cells_reader(&sheet_name)?;
+    let cell_reader = workbook.worksheet_cells_reader(&sheet_name);
+    // 检查是否成功获取cell_reader
+    let mut cell_reader = match cell_reader {
+        Ok(reader) => reader,
+        Err(_) => {
+            return Err(Box::new(ExcelError::NoSheetsFound));
+        }
+    };
 
     // 1. 读取表头行
     let mut first_row: Vec<String> = Vec::new();
@@ -100,15 +115,12 @@ pub fn parse_cfg_with_excel(
 }
 
 /// 打开Excel文件并获取第一个工作表名称
-fn open_excel_workbook(file_path: &str) -> Result<(Xlsx<BufReader<File>>, String), Box<dyn Error>> {
+pub fn open_excel_workbook(file_path: &str) -> Result<(Xlsx<BufReader<File>>), Box<dyn Error>> {
     let workbook: Xlsx<_> = open_workbook(file_path)?;
-    let sheet_name = workbook
-        .sheet_names()
-        .get(0)
-        .cloned()
-        .ok_or(ExcelError::NoSheetsFound)?;
-    Ok((workbook, sheet_name))
+    Ok(workbook)
 }
+
+
 
 /// 查找标签索引
 fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<u32, Box<dyn Error>> {
