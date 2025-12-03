@@ -6,13 +6,16 @@ mod write_xml;
 mod find_files;
 
 /// 获取Excel文件中的工作表名称列表
-fn get_sheet_names(file_path: &str) -> Option<Vec<String>> {
-    let workbook = read_excel::open_excel_workbook(file_path).ok()?;
-    Some(workbook.sheet_names())
+pub fn get_sheet_names(file_path: &str) -> Vec<String> {
+    let workbook = read_excel::open_excel_workbook(file_path);
+    match workbook {
+        Ok(workbook)=> workbook.sheet_names(),
+        Err(_) => vec![],
+    }
 }
 
 /// 获取默认配置JSON字符串
-fn get_default_cfg_json() -> String {
+pub fn get_default_cfg_json() -> String {
     config::CFG_JSON.to_string()
 }
 
