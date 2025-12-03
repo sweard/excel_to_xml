@@ -115,7 +115,7 @@ pub fn parse_cfg_with_excel(
 }
 
 /// 打开Excel文件并获取第一个工作表名称
-pub fn open_excel_workbook(file_path: &str) -> Result<(Xlsx<BufReader<File>>), Box<dyn Error>> {
+pub fn open_excel_workbook(file_path: &str) -> Result<Xlsx<BufReader<File>>, Box<dyn Error>> {
     let workbook: Xlsx<_> = open_workbook(file_path)?;
     Ok(workbook)
 }
