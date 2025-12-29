@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, remove_file, rename, File},
+    error::Error,
+    fs::{remove_file, rename, File},
     io::{BufReader, BufWriter},
 };
 
@@ -37,39 +38,28 @@ fn get_parsed_data<'a>(
     cfg_json: &str,
     excel_path: &'a str,
     xml_dir_path: &str,
-) -> Option<(&'a str, ParsedCfg, Vec<String>)> {
-    // cfg_json 如果是路径，则读取文件内容，否者当做字符串处理
-    let cfg_json = match fs::read_to_string(&cfg_json) {
-        Ok(content) => content,
-        Err(e) => {
-            println!("输入不是文件: {:?}", e);
-            // 返回输入的内容
-            cfg_json.to_string()
-        }
-    };
-    let cfg = read_excel::parse_cfg_with_excel(excel_path, &cfg_json);
+) -> Result<(&'a str, ParsedCfg, Vec<String>), Box<dyn Error>> {
+    let cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json);
     if cfg.is_err() {
         println!("解析配置时出错: {:?}", cfg.err());
-        return None;
+        return Err("解析配置时出错".into());
     }
     let parsed_cfg = cfg.unwrap();
-    println!("解析配置成功: {:?}\n", parsed_cfg);
-    let target_folder = &parsed_cfg.target_folder;
+    println!("解析配置成功: {:?}", parsed_cfg);
     let ignore_folders: Vec<&str> = parsed_cfg.ignore_folder.iter().map(|s| s.as_str()).collect();
     let forder = find_files::find_target_folder(
         &xml_dir_path,
-        target_folder,
+        "res",
         &ignore_folders,
     );
     if forder.is_none() {
-        println!("未找到目标文件夹");
-        return None;
+        println!("未找到res文件夹");
+        return Err("未找到res文件夹".into());
     }
     let res_folder = forder.unwrap();
-    println!("找到目标文件夹: {}", res_folder);
+    println!("找到res文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
-    println!("");
-    return Some((excel_path, parsed_cfg, paths));
+    return Ok((excel_path, parsed_cfg, paths));
 }
 
 /// 准备需要写入的数据
@@ -78,10 +68,7 @@ pub fn update(
     excel_path: &str,
     xml_dir_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
-        Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
-        None => return Err("获取解析数据失败".into()),
-    };
+    let (file_path, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
     let tag_index = parsed_cfg.tag_index;
     // 预先打开Excel文件，只打开一次
     let mut workbook: Xlsx<_> = open_workbook(file_path)?;
@@ -126,11 +113,7 @@ pub fn update(
         // 查找匹配的XML文件路径
         let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
             Some(path) => path,
-            None => {
-                // 没找到对应语言的文件，跳过这个语言
-                println!("未找到对应语言的XML文件: {}", end_point);
-                continue;
-            }, 
+            None => continue, // 没找到对应语言的文件，跳过这个语言
         };
 
         // 清空map，准备复用
@@ -167,10 +150,7 @@ pub fn quick_update(
     excel_path: &str,
     xml_dir_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (file_path, parsed_cfg, paths) = match get_parsed_data(cfg_json, excel_path, xml_dir_path) {
-        Some((file_path, parsed_cfg, paths)) => (file_path, parsed_cfg, paths),
-        None => return Err("获取解析数据失败".into()),
-    };
+    let (file_path, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
     let tag_index = parsed_cfg.tag_index;
 
     // 预先打开Excel文件，只打开一次
@@ -205,10 +185,7 @@ pub fn quick_update(
         // 查找匹配的XML文件路径
         let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
             Some(path) => path,
-            None => {
-                println!("未找到对应语言的XML文件: {}", end_point);
-                continue;
-            }
+            None => continue, // 没找到对应语言的文件，跳过这个语言
         };
         let path_index = PathIndex {
             path: path.to_string(),
@@ -276,7 +253,6 @@ fn update_xml_file(
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("更新XML文件: {}", path);
     // 创建临时文件路径
     let temp_path = format!("{}.temp", path);
     // 正则表达式

@@ -32,12 +32,11 @@ pub const CFG_JSON: &str = r#"{
     },
     "reset": false,
     "replaceBlankWithDefault": true,
-    "regex":"",
+    "regex":"\\s+$",
     "ignoreFolder": [
         "build",
         "mainland"
-    ],
-    "targetFolder": "res"
+    ]
 }"#;
 
 /**
@@ -45,20 +44,19 @@ pub const CFG_JSON: &str = r#"{
  */
 #[derive(Debug, PartialEq)]
 pub struct ParsedCfg {
-    pub sheet_name: String,               // 表名
-    pub default_lang: String,             // 默认语言
-    pub reset: bool,                      // 是否替换所有
-    pub disable_escape: bool,             // 是否禁用转义
-    pub replace_blank_with_default: bool, // 是否替换空白内容为默认语言
-    pub regex: String,                    // 正则表达式
-    pub tag_name: String,                 // 标签列名称
-    pub tag_index: u32,                   // 标签序号 excel中的序号
-
+    pub sheet_name: String,                 // 表名
+    pub default_lang: String,               // 默认语言
+    pub reset: bool,                        // 是否替换所有
+    pub disable_escape: bool,               // 是否禁用转义
+    pub replace_blank_with_default: bool,   // 是否替换空白内容为默认语言
+    pub regex: String,                      // 正则表达式
+    pub tag_name: String,                // 标签列名称
+    pub tag_index: u32,                  // 标签序号 excel中的序号
+    
     pub lang_map: Vec<(String, String)>, // 语言名称 zh - 简体中文
     pub lang_index_map: Vec<(String, u32)>, // 语言名称 zh - 0（excel中的序号）
     pub escape_only: Vec<(String, String)>, // 只需要转义这部分内容，没配置就转义全部
-    pub ignore_folder: Vec<String>,      // 忽略的文件夹
-    pub target_folder: String,           // 目标文件夹
+    pub ignore_folder: Vec<String>,         // 忽略的文件夹
 }
 
 impl ParsedCfg {
@@ -129,13 +127,7 @@ impl ParsedCfg {
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
                     .collect()
             })
-            .unwrap_or_default();
-
-        let target_folder = json_obj
-            .get("targetFolder")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or_default();    
 
         Ok(ParsedCfg {
             sheet_name,
@@ -150,7 +142,6 @@ impl ParsedCfg {
             ignore_folder,
             tag_index: 0,           // 默认值
             lang_index_map: vec![], // 默认值
-            target_folder,
         })
     }
 }
