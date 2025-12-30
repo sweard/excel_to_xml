@@ -46,12 +46,12 @@ fn get_parsed_data<'a>(
     }
     let parsed_cfg = cfg.unwrap();
     println!("解析配置成功: {:?}", parsed_cfg);
-    let ignore_folders: Vec<&str> = parsed_cfg.ignore_folder.iter().map(|s| s.as_str()).collect();
-    let forder = find_files::find_target_folder(
-        &xml_dir_path,
-        "res",
-        &ignore_folders,
-    );
+    let ignore_folders: Vec<&str> = parsed_cfg
+        .ignore_folder
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
+    let forder = find_files::find_target_folder(&xml_dir_path, "res", &ignore_folders);
     if forder.is_none() {
         println!("未找到res文件夹");
         return Err("未找到res文件夹".into());
@@ -371,20 +371,34 @@ fn update_xml_file(
 
                     // 更新文本内容
                     match tag_value_map.get(tag_name) {
-                        Some(value) if !value.is_empty() => {
+                        Some(value) => {
                             let write_value = get_write_value(
                                 tag_name,
                                 value,
                                 default_valug_map,
                                 replace_blank_with_default,
                             );
-                            write_text(
-                                disable_escape,
-                                &mut xml_writer,
-                                write_value,
-                                escape_only,
-                                &regex,
-                            )?;
+                            let write_value_empty = write_value.trim().is_empty();
+                            let mut keep_original = false;
+                            if write_value_empty {
+                                let original_text = e.unescape().unwrap_or_default();
+                                let original_text_empty = original_text.as_ref().trim().is_empty();
+                                if write_value_empty && original_text_empty {
+                                    // fixme 内容均为空，不做修改, 会有不换行的问题
+                                    keep_original = true;
+                                }
+                            }
+                            if keep_original {
+                                xml_writer.write_event(Event::Text(e.to_owned()))?;
+                            } else {
+                                write_text(
+                                    disable_escape,
+                                    &mut xml_writer,
+                                    write_value,
+                                    escape_only,
+                                    &regex,
+                                )?;
+                            }
                         }
                         _ => {
                             xml_writer.write_event(Event::Text(e.to_owned()))?;
