@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Excel读取
-calamine = "0.26.1"
+calamine = "0.32.0"
 # JSON解析
 # serde = "1.0.215"
 serde_json = "1.0.140"

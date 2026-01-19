@@ -252,6 +252,7 @@ pub fn process_excel_multi_lang(
         }
 
         if col == tag_index {
+            // 处理tag
             cur.tag = cell.get_value().as_string().map(String::from);
         } else if lang_index_vec.contains(&col) {
             let raw = cell.get_value().as_string().unwrap_or("".to_owned());
