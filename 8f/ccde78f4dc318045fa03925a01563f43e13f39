@@ -1,0 +1,29 @@
+src/find_files.rs
+  s_75947bcd76b49a::t_392f09919b2e03 39
+Cargo.lock
+  ai_agent 128
+Cargo.toml
+  s_75947bcd76b49a::t_fe871920ab6d73 20-21
+src/read_excel.rs
+  s_75947bcd76b49a::t_6ee0a75929fbde 59
+  s_75947bcd76b49a::t_df1452c4dbd402 104
+  s_75947bcd76b49a::t_87ac610a19a1f6 107
+src/write_xml.rs
+  s_75947bcd76b49a::t_5e5fa95434e1af 44,48,56,60,206,236,264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "8fccde78f4dc318045fa03925a01563f43e13f39",
+  "prompts": {},
+  "sessions": {
+    "s_75947bcd76b49a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8a5a2db-bf65-481f-ab96-d40213bbfb18",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
