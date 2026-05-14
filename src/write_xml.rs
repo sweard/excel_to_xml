@@ -41,11 +41,11 @@ fn get_parsed_data<'a>(
 ) -> Result<(&'a str, ParsedCfg, Vec<String>), Box<dyn Error>> {
     let cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json);
     if cfg.is_err() {
-        println!("解析配置时出错: {:?}", cfg.err());
+        log::error!("解析配置时出错: {:?}", cfg.err());
         return Err("解析配置时出错".into());
     }
     let parsed_cfg = cfg.unwrap();
-    println!("解析配置成功: {:?}", parsed_cfg);
+    log::info!("解析配置成功: {:?}", parsed_cfg);
     let ignore_folders: Vec<&str> = parsed_cfg
         .ignore_folder
         .iter()
@@ -53,11 +53,11 @@ fn get_parsed_data<'a>(
         .collect();
     let forder = find_files::find_target_folder(&xml_dir_path, "res", &ignore_folders);
     if forder.is_none() {
-        println!("未找到res文件夹");
+        log::error!("未找到res文件夹");
         return Err("未找到res文件夹".into());
     }
     let res_folder = forder.unwrap();
-    println!("找到res文件夹: {}", res_folder);
+    log::info!("找到res文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
     return Ok((excel_path, parsed_cfg, paths));
 }
@@ -203,7 +203,7 @@ pub fn quick_update(
         lang_index_vec,
         &mut tag_value_map,
     )?;
-    println!("tag_value_map size: {}", tag_value_map.len());
+    log::debug!("tag_value_map size: {}", tag_value_map.len());
     if let Some(pos) = path_index_vec.iter().position(|p| &p.lang == default_lang) {
         // 默认语言在生成时，已被移动到index 0
         path_index_vec.swap(0, pos);
@@ -233,7 +233,7 @@ pub fn quick_update(
         };
         write_map.clear(); // 清空map
         if res.is_err() {
-            println!(
+            log::error!(
                 "更新XML文件失败,lang index: {}, err: {:?}",
                 index,
                 res.err()
@@ -261,7 +261,7 @@ fn update_xml_file(
         match Regex::new(regex_str) {
             Ok(regex) => Some(regex),
             Err(e) => {
-                println!("正则表达式错误: {:?}", e);
+                log::warn!("正则表达式错误: {:?}", e);
                 None
             }
         }
