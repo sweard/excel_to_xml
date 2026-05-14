@@ -216,7 +216,7 @@ pub fn quick_update(
         let lang = &p.lang;
         let mut write_map: HashMap<String, String> = HashMap::new();
         tag_value_map.iter().for_each(|(tag, map)| {
-            write_map.insert(tag.to_string(), map.get(&index).unwrap().to_string());
+            write_map.insert(tag.to_string(), map.get(&index).cloned().unwrap_or_default());
         });
 
         let is_default_lang = lang == default_lang;
