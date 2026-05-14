@@ -1,0 +1,19 @@
+src/write_xml.rs
+  s_75947bcd76b49a::t_7394ebb5d26e78 219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "e88bdc7d97308f6078db621863aa6617612b9a1c",
+  "prompts": {},
+  "sessions": {
+    "s_75947bcd76b49a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8a5a2db-bf65-481f-ab96-d40213bbfb18",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
