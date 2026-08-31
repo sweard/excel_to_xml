@@ -442,9 +442,11 @@ fn update_xml_file(
         xml_writer.write_event(Event::End(BytesEnd::new(XML_RESOURCES)))?;
     } else {
         // 更新XML文件
+        let mut open_element_depth = 0usize;
         loop {
             match xml_reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
+                    open_element_depth += 1;
                     if e.name().as_ref() == XML_B_STRING {
                         // 提取name属性
                         for attr in e.attributes() {
@@ -463,6 +465,11 @@ fn update_xml_file(
                 }
 
                 Ok(Event::End(ref e)) => {
+                    if open_element_depth == 0 {
+                        return Err(operation_error(
+                            "XML 结束标签没有对应的开始标签".to_string(),
+                        ));
+                    }
                     if e.name().as_ref() == XML_B_RESOURCES {
                         // 在关闭resources标签前添加缺失的标签
                         add_missing_tags(
@@ -475,6 +482,7 @@ fn update_xml_file(
                         )?;
                     }
                     xml_writer.write_event(Event::End(e.to_owned()))?;
+                    open_element_depth -= 1;
                 }
 
                 Ok(Event::Text(e)) => {
@@ -525,7 +533,12 @@ fn update_xml_file(
                     current_tag_name = None;
                 }
 
-                Ok(Event::Eof) => break,
+                Ok(Event::Eof) => {
+                    if open_element_depth != 0 {
+                        return Err(operation_error("XML 文件在标签闭合前意外结束".to_string()));
+                    }
+                    break;
+                }
                 Ok(e) => xml_writer.write_event(e)?,
                 Err(e) => return Err(e.into()),
             }
@@ -630,5 +643,47 @@ fn get_write_value<'a>(
         }
     } else {
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_failure_restores_already_replaced_files() {
+        let id = STAGED_FILE_ID.fetch_add(1, Ordering::Relaxed);
+        let root =
+            std::env::temp_dir().join(format!("excel-to-xml-rollback-{}-{id}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create rollback test directory");
+        let first_path = root.join("first.xml");
+        let second_path = root.join("second.xml");
+        std::fs::write(&first_path, "old first").expect("write first original");
+        std::fs::write(&second_path, "old second").expect("write second original");
+
+        let first = StagedFile::new(first_path.to_str().expect("first path"));
+        let second = StagedFile::new(second_path.to_str().expect("second path"));
+        std::fs::write(&first.temp_path, "new first").expect("write first staged file");
+        // second.temp_path deliberately does not exist, forcing promotion to fail
+        // after the first file has already been replaced.
+        let staged_files = vec![first, second];
+
+        let error = commit_staged_files(&staged_files).expect_err("second promotion must fail");
+
+        assert!(error.to_string().contains("已回滚"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&first_path).expect("read first after rollback"),
+            "old first"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&second_path).expect("read second after rollback"),
+            "old second"
+        );
+        assert!(staged_files
+            .iter()
+            .all(|staged| !staged.backup_path.exists()));
+
+        drop(staged_files);
+        std::fs::remove_dir_all(root).expect("remove rollback test directory");
     }
 }
