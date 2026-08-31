@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{config::ParsedCfg, find_files, read_excel};
-use calamine::{open_workbook, Reader, Xlsx};
+use calamine::Xlsx;
 use quick_xml::{
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
     Writer,
@@ -31,6 +31,8 @@ struct PathIndex {
     index: u32,
     lang: String,
 }
+
+type ParsedData = (Xlsx<BufReader<File>>, ParsedCfg, Vec<String>);
 
 static STAGED_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -183,15 +185,17 @@ fn resolve_target_paths(
 /// - excel_path: Excel文件路径
 /// - parsed_cfg: 解析后的配置
 /// - paths: 找到的XML文件路径列表
-fn get_parsed_data<'a>(
+fn get_parsed_data(
     cfg_json: &str,
-    excel_path: &'a str,
+    excel_path: &str,
     xml_dir_path: &str,
-) -> Result<(&'a str, ParsedCfg, Vec<String>), Box<dyn Error>> {
-    let parsed_cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json).map_err(|err| {
-        log::error!("解析配置时出错: {err}");
-        operation_error(format!("解析配置时出错: {err}"))
-    })?;
+) -> Result<ParsedData, Box<dyn Error>> {
+    let mut workbook = read_excel::open_excel_workbook(excel_path)?;
+    let parsed_cfg =
+        read_excel::parse_cfg_with_workbook(&mut workbook, cfg_json).map_err(|err| {
+            log::error!("解析配置时出错: {err}");
+            operation_error(format!("解析配置时出错: {err}"))
+        })?;
     log::info!("解析配置成功: {:?}", parsed_cfg);
     let ignore_folders: Vec<&str> = parsed_cfg
         .ignore_folder
@@ -206,7 +210,7 @@ fn get_parsed_data<'a>(
     let res_folder = forder.unwrap();
     log::info!("找到res文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
-    Ok((excel_path, parsed_cfg, paths))
+    Ok((workbook, parsed_cfg, paths))
 }
 
 /// 准备需要写入的数据
@@ -215,21 +219,9 @@ pub fn update(
     excel_path: &str,
     xml_dir_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (file_path, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
+    let (mut workbook, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
     let tag_index = parsed_cfg.tag_index;
-    // 预先打开Excel文件，只打开一次
-    let mut workbook: Xlsx<_> = open_workbook(file_path)?;
-
-    // 获取sheet名称（只需获取一次）
-    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
-        workbook
-            .sheet_names()
-            .first()
-            .cloned()
-            .ok_or("No sheets found")?
-    } else {
-        parsed_cfg.sheet_name.clone()
-    };
+    let sheet_name = parsed_cfg.sheet_name.clone();
 
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
@@ -290,22 +282,9 @@ pub fn quick_update(
     excel_path: &str,
     xml_dir_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (file_path, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
+    let (mut workbook, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
     let tag_index = parsed_cfg.tag_index;
-
-    // 预先打开Excel文件，只打开一次
-    let mut workbook: Xlsx<_> = open_workbook(file_path)?;
-
-    // 获取sheet名称（只需获取一次）
-    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
-        workbook
-            .sheet_names()
-            .first()
-            .cloned()
-            .ok_or("No sheets found")?
-    } else {
-        parsed_cfg.sheet_name.clone()
-    };
+    let sheet_name = parsed_cfg.sheet_name.clone();
 
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);

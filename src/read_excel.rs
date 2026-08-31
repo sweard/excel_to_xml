@@ -48,35 +48,31 @@ struct RowMultiLangData {
 
 /**
  * 解析Excel文件
- * @param file_path Excel文件路径
+ * @param workbook 已打开的Excel工作簿
  * @param config_json 用户输入的配置JSON
  * @return 解析后的配置
  */
-pub fn parse_cfg_with_excel(
-    file_path: &str,
+pub fn parse_cfg_with_workbook(
+    workbook: &mut Xlsx<BufReader<File>>,
     config_json: &str,
 ) -> Result<ParsedCfg, Box<dyn Error>> {
-    log::info!(
-        "开始解析Excel文件: {} config_json: {}",
-        file_path,
-        config_json
-    );
+    log::info!("开始解析Excel配置: {}", config_json);
     // 解析配置JSON
     let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
 
-    // 打开Excel文件并获取工作表
-    let mut workbook = open_excel_workbook(file_path)?;
-
-    let sheet_names = workbook.sheet_names();
-    let mut sheet_name = &parsed_cfg.sheet_name;
-    if sheet_name.is_empty() {
-        sheet_name = sheet_names
+    let sheet_name = if parsed_cfg.sheet_name.is_empty() {
+        workbook
+            .sheet_names()
             .first()
+            .cloned()
             .ok_or_else(|| Box::new(ExcelError::NoSheetsFound))?
-    }
+    } else {
+        parsed_cfg.sheet_name.clone()
+    };
+    parsed_cfg.sheet_name = sheet_name.clone();
 
     // 获取cell_reader迭代器
-    let cell_reader = workbook.worksheet_cells_reader(sheet_name);
+    let cell_reader = workbook.worksheet_cells_reader(&sheet_name);
     // 检查是否成功获取cell_reader
     let mut cell_reader = match cell_reader {
         Ok(reader) => reader,
@@ -120,7 +116,7 @@ pub fn parse_cfg_with_excel(
     Ok(parsed_cfg)
 }
 
-/// 打开Excel文件并获取第一个工作表名称
+/// 打开Excel工作簿
 pub fn open_excel_workbook(file_path: &str) -> Result<Xlsx<BufReader<File>>, Box<dyn Error>> {
     let workbook: Xlsx<_> = open_workbook(file_path)?;
     Ok(workbook)
