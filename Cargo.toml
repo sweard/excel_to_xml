@@ -12,13 +12,13 @@ crate-type = ["cdylib", "rlib"]
 calamine = "0.32.0"
 # JSON解析
 # serde = "1.0.215"
-serde_json = "1.0.140"
+serde_json = "1.0.151"
 # xml读写
 quick-xml = "0.38.4"
 # 正则表达式
-regex = "1.11.1"
+regex = "1.13.1"
 # 日志门面
-log = "0.4"
+log = "0.4.34"
 
 [dev-dependencies]
 zip = { version = "4.6.1", default-features = false }
