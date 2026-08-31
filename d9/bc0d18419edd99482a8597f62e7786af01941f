@@ -1,0 +1,32 @@
+src/write_xml.rs
+  s_275a20cee1ca24::t_09ed472939c8bf 9-13,124,129,142,148,164,166,181-185,206,209-210,221-223,236,287,343,362,370,454,523
+  s_275a20cee1ca24::t_ec68155e186c3c 524-525,551,592
+src/read_excel.rs
+  s_275a20cee1ca24::t_eb1cda39510fbb 1-4,65,68-69,76,88,104,107,113,128-130,134,139,172,233
+src/error.rs
+  s_275a20cee1ca24::t_d0bf07698f2c05 1-57
+src/main.rs
+  s_275a20cee1ca24::t_a05791b1b149d1 7
+src/lib.rs
+  s_275a20cee1ca24::t_d0bf07698f2c05 4,9,13,16,30
+tests/conversion.rs
+  s_275a20cee1ca24::t_c2ef1b00e483d7 236,262,277
+  s_275a20cee1ca24::t_ae473fe33651c6 239-242,263,278-281
+  s_275a20cee1ca24::t_317569ba79258d 235,237-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d9bc0d18419edd99482a8597f62e7786af01941f",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
