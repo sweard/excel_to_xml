@@ -129,6 +129,16 @@ fn write_workbook(path: &Path) {
     <row r="5">
       <c r="A5" t="inlineStr"><is><t>empty</t></is></c>
     </row>
+    <row r="6">
+      <c r="A6" t="inlineStr"><is><t>z_new</t></is></c>
+      <c r="B6" t="inlineStr"><is><t>Last</t></is></c>
+      <c r="C6" t="inlineStr"><is><t>末项</t></is></c>
+    </row>
+    <row r="7">
+      <c r="A7" t="inlineStr"><is><t>a_new</t></is></c>
+      <c r="B7" t="inlineStr"><is><t>First</t></is></c>
+      <c r="C7" t="inlineStr"><is><t>首项</t></is></c>
+    </row>
   </sheetData>
 </worksheet>"#,
         ),
@@ -214,6 +224,9 @@ fn normal_and_quick_update_produce_the_same_files() {
     assert!(normal_zh.contains("name=\"bye\">再见</string>"));
     assert!(normal_zh.contains("name=\"fallback\">Fallback</string>"));
     assert!(normal_zh.contains("name=\"empty\""));
+    let first_new_tag = normal_zh.find("name=\"a_new\"").expect("a_new is written");
+    let last_new_tag = normal_zh.find("name=\"z_new\"").expect("z_new is written");
+    assert!(first_new_tag < last_new_tag);
     assert_no_sidecar_files(fixture.path());
 }
 

@@ -50,6 +50,7 @@ struct PreparedConversion {
     workbook: Xlsx<BufReader<File>>,
     parsed_cfg: ParsedCfg,
     targets: Vec<PathIndex>,
+    regex: Option<Regex>,
 }
 
 static STAGED_FILE_ID: AtomicU64 = AtomicU64::new(0);
@@ -226,16 +227,25 @@ fn prepare_conversion(
     log::info!("找到res文件夹: {}", res_folder.display());
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml")?;
     let targets = resolve_target_paths(&parsed_cfg, &paths)?;
+    let regex = if is_blank(&parsed_cfg.regex) {
+        None
+    } else {
+        Some(
+            Regex::new(&parsed_cfg.regex)
+                .map_err(|error| ConversionError::InvalidRegex(error.to_string()))?,
+        )
+    };
     Ok(PreparedConversion {
         workbook,
         parsed_cfg,
         targets,
+        regex,
     })
 }
 
 fn stage_low_memory(prepared: &mut PreparedConversion) -> ConversionResult<Vec<StagedFile>> {
-    // 预分配一个HashMap，循环内复用
-    let mut tag_value_map = HashMap::with_capacity(5000);
+    // 同一个HashMap在各语言之间循环复用。
+    let mut tag_value_map = HashMap::new();
     let mut staged_files = Vec::with_capacity(prepared.targets.len());
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
     let default_lang = &prepared.parsed_cfg.default_lang;
@@ -267,6 +277,7 @@ fn stage_low_memory(prepared: &mut PreparedConversion) -> ConversionResult<Vec<S
                 &tag_value_map,
                 &default_valug_map,
                 &prepared.parsed_cfg,
+                prepared.regex.as_ref(),
             )?);
             default_valug_map = tag_value_map.clone();
         } else {
@@ -276,11 +287,10 @@ fn stage_low_memory(prepared: &mut PreparedConversion) -> ConversionResult<Vec<S
                 &tag_value_map,
                 &default_valug_map,
                 &prepared.parsed_cfg,
+                prepared.regex.as_ref(),
             )?);
         }
     }
-    tag_value_map.clear(); // 清空map
-    tag_value_map.shrink_to_fit(); // 释放内存
     Ok(staged_files)
 }
 
@@ -316,14 +326,25 @@ fn stage_fast(prepared: &mut PreparedConversion) -> ConversionResult<Vec<StagedF
         // 以便后续处理空值
         let res = if is_default_lang && replace_blank_with_default {
             // 处理默认语言,使用空default_valug_map
-            let res = update_xml_file(path, &write_map, &default_valug_map, &prepared.parsed_cfg);
+            let res = update_xml_file(
+                path,
+                &write_map,
+                &default_valug_map,
+                &prepared.parsed_cfg,
+                prepared.regex.as_ref(),
+            );
             // 处理完后，默认语言的值会被复制到default_valug_map
             default_valug_map = write_map.clone();
             res
         } else {
-            update_xml_file(path, &write_map, &default_valug_map, &prepared.parsed_cfg)
+            update_xml_file(
+                path,
+                &write_map,
+                &default_valug_map,
+                &prepared.parsed_cfg,
+                prepared.regex.as_ref(),
+            )
         };
-        write_map.clear(); // 清空map
         match res {
             Ok(staged) => staged_files.push(staged),
             Err(err) => {
@@ -359,20 +380,9 @@ fn update_xml_file(
     tag_value_map: &HashMap<String, String>,
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
+    regex: Option<&Regex>,
 ) -> ConversionResult<StagedFile> {
     let staged_file = StagedFile::new(path);
-    // 正则表达式
-    let regex_str = &parsed_cfg.regex;
-    let regex = if !is_blank(regex_str) {
-        match Regex::new(regex_str) {
-            Ok(regex) => Some(regex),
-            Err(e) => {
-                return Err(ConversionError::InvalidRegex(e.to_string()));
-            }
-        }
-    } else {
-        None
-    };
 
     // 打开原始XML文件和临时文件
     let file = File::open(path)?;
@@ -402,7 +412,7 @@ fn update_xml_file(
         xml_writer.write_event(Event::Start(BytesStart::new(XML_RESOURCES)))?;
 
         // 4. 按照tag_value_map写入所有标签
-        for (tag, value) in tag_value_map {
+        for (tag, value) in sorted_tag_values(tag_value_map) {
             // 添加换行和缩进
             xml_writer.write_event(Event::Text(BytesText::new(XML_INDENT)))?;
 
@@ -417,7 +427,7 @@ fn update_xml_file(
                 &mut xml_writer,
                 write_value,
                 escape_only,
-                &regex,
+                regex,
             )?;
             xml_writer.write_event(Event::End(BytesEnd::new(XML_STRING)))?;
         }
@@ -463,7 +473,7 @@ fn update_xml_file(
                             default_valug_map,
                             &updated_tags,
                             parsed_cfg,
-                            &regex,
+                            regex,
                         )?;
                     }
                     xml_writer.write_event(Event::End(e.to_owned()))?;
@@ -492,8 +502,15 @@ fn update_xml_file(
                             let write_value_empty = write_value.trim().is_empty();
                             let mut keep_original = false;
                             if write_value_empty {
-                                let original_text = e.unescape().unwrap_or_default();
-                                let original_text_empty = original_text.as_ref().trim().is_empty();
+                                let original_text_empty = e
+                                    .decode()
+                                    .ok()
+                                    .and_then(|decoded| {
+                                        quick_xml::escape::unescape(&decoded)
+                                            .ok()
+                                            .map(|text| text.trim().is_empty())
+                                    })
+                                    .unwrap_or(false);
                                 if write_value_empty && original_text_empty {
                                     // fixme 内容均为空，不做修改, 会有不换行的问题
                                     keep_original = true;
@@ -507,7 +524,7 @@ fn update_xml_file(
                                     &mut xml_writer,
                                     write_value,
                                     escape_only,
-                                    &regex,
+                                    regex,
                                 )?;
                             }
                         }
@@ -547,12 +564,12 @@ fn add_missing_tags(
     default_valug_map: &HashMap<String, String>,
     updated_tags: &HashSet<String>,
     parsed_cfg: &ParsedCfg,
-    regex: &Option<Regex>,
+    regex: Option<&Regex>,
 ) -> ConversionResult<()> {
     let disable_escape = parsed_cfg.disable_escape;
     let escape_only = &parsed_cfg.escape_only;
     let mut missing_tag_added = false;
-    for (tag, value) in tag_value_map {
+    for (tag, value) in sorted_tag_values(tag_value_map) {
         if !updated_tags.contains(tag) {
             if !missing_tag_added {
                 // 结束时，需要添加换行和缩进
@@ -587,8 +604,8 @@ fn write_text(
     disable_escape: bool,
     xml_writer: &mut Writer<BufWriter<File>>,
     value: &str,
-    escape_only: &Vec<(String, String)>,
-    regex: &Option<Regex>,
+    escape_only: &[(String, String)],
+    regex: Option<&Regex>,
 ) -> ConversionResult<()> {
     let value = if let Some(regex) = regex {
         // 使用正则表达式替换
@@ -615,6 +632,12 @@ fn write_text(
     Ok(())
 }
 
+fn sorted_tag_values(tag_value_map: &HashMap<String, String>) -> Vec<(&String, &String)> {
+    let mut entries = tag_value_map.iter().collect::<Vec<_>>();
+    entries.sort_unstable_by_key(|(tag, _)| *tag);
+    entries
+}
+
 fn is_blank(value: &str) -> bool {
     value.trim().is_empty()
 }
@@ -639,6 +662,21 @@ fn get_write_value<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tag_values_are_sorted_by_tag() {
+        let tag_value_map = HashMap::from([
+            ("z_tag".to_string(), "last".to_string()),
+            ("a_tag".to_string(), "first".to_string()),
+        ]);
+
+        let tags = sorted_tag_values(&tag_value_map)
+            .into_iter()
+            .map(|(tag, _)| tag.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(tags, vec!["a_tag", "z_tag"]);
+    }
 
     #[test]
     fn commit_failure_restores_already_replaced_files() {
