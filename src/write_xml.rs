@@ -32,7 +32,22 @@ struct PathIndex {
     lang: String,
 }
 
-type ParsedData = (Xlsx<BufReader<File>>, ParsedCfg, Vec<String>);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConversionMode {
+    LowMemory,
+    Fast,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConversionReport {
+    pub files_updated: usize,
+}
+
+struct PreparedConversion {
+    workbook: Xlsx<BufReader<File>>,
+    parsed_cfg: ParsedCfg,
+    targets: Vec<PathIndex>,
+}
 
 static STAGED_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -181,15 +196,11 @@ fn resolve_target_paths(
     Ok(result)
 }
 
-/// 获取解析后的数据
-/// - excel_path: Excel文件路径
-/// - parsed_cfg: 解析后的配置
-/// - paths: 找到的XML文件路径列表
-fn get_parsed_data(
+fn prepare_conversion(
     cfg_json: &str,
     excel_path: &str,
     xml_dir_path: &str,
-) -> Result<ParsedData, Box<dyn Error>> {
+) -> Result<PreparedConversion, Box<dyn Error>> {
     let mut workbook = read_excel::open_excel_workbook(excel_path)?;
     let parsed_cfg =
         read_excel::parse_cfg_with_workbook(&mut workbook, cfg_json).map_err(|err| {
@@ -210,30 +221,24 @@ fn get_parsed_data(
     let res_folder = forder.unwrap();
     log::info!("找到res文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
-    Ok((workbook, parsed_cfg, paths))
+    let targets = resolve_target_paths(&parsed_cfg, &paths)?;
+    Ok(PreparedConversion {
+        workbook,
+        parsed_cfg,
+        targets,
+    })
 }
 
-/// 准备需要写入的数据
-pub fn update(
-    cfg_json: &str,
-    excel_path: &str,
-    xml_dir_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (mut workbook, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
-    let tag_index = parsed_cfg.tag_index;
-    let sheet_name = parsed_cfg.sheet_name.clone();
-
+fn stage_low_memory(prepared: &mut PreparedConversion) -> Result<Vec<StagedFile>, Box<dyn Error>> {
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
-    let path_index_vec = resolve_target_paths(&parsed_cfg, &paths)?;
-    let mut staged_files = Vec::with_capacity(path_index_vec.len());
-
+    let mut staged_files = Vec::with_capacity(prepared.targets.len());
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
-    let default_lang = &parsed_cfg.default_lang;
-    let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
+    let default_lang = &prepared.parsed_cfg.default_lang;
+    let replace_blank_with_default = prepared.parsed_cfg.replace_blank_with_default;
 
     // 遍历语言索引映射
-    for target in &path_index_vec {
+    for target in &prepared.targets {
         let lang = &target.lang;
         let is_default_lang = lang == default_lang;
 
@@ -243,9 +248,9 @@ pub fn update(
         // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
         let lang_index = target.index;
         read_excel::process_excel_single_lang(
-            &mut workbook,
-            &sheet_name,
-            tag_index,
+            &mut prepared.workbook,
+            &prepared.parsed_cfg.sheet_name,
+            prepared.parsed_cfg.tag_index,
             lang_index,
             &mut tag_value_map,
         )?;
@@ -257,7 +262,7 @@ pub fn update(
                 &target.path,
                 &tag_value_map,
                 &default_valug_map,
-                &parsed_cfg,
+                &prepared.parsed_cfg,
             )?);
             default_valug_map = tag_value_map.clone();
         } else {
@@ -266,45 +271,34 @@ pub fn update(
                 &target.path,
                 &tag_value_map,
                 &default_valug_map,
-                &parsed_cfg,
+                &prepared.parsed_cfg,
             )?);
         }
     }
-    commit_staged_files(&staged_files)?;
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
-    Ok(())
+    Ok(staged_files)
 }
 
-/// 快速更新，占用更多内存
-pub fn quick_update(
-    cfg_json: &str,
-    excel_path: &str,
-    xml_dir_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let (mut workbook, parsed_cfg, paths) = get_parsed_data(cfg_json, excel_path, xml_dir_path)?;
-    let tag_index = parsed_cfg.tag_index;
-    let sheet_name = parsed_cfg.sheet_name.clone();
-
-    let path_index_vec = resolve_target_paths(&parsed_cfg, &paths)?;
-    let mut staged_files = Vec::with_capacity(path_index_vec.len());
-    let default_lang = &parsed_cfg.default_lang;
-    let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
+fn stage_fast(prepared: &mut PreparedConversion) -> Result<Vec<StagedFile>, Box<dyn Error>> {
+    let mut staged_files = Vec::with_capacity(prepared.targets.len());
+    let default_lang = &prepared.parsed_cfg.default_lang;
+    let replace_blank_with_default = prepared.parsed_cfg.replace_blank_with_default;
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
-    let lang_index_vec: Vec<u32> = path_index_vec.iter().map(|p| p.index).collect();
+    let lang_index_vec: Vec<u32> = prepared.targets.iter().map(|p| p.index).collect();
     let mut translation_rows = Vec::new();
 
     read_excel::process_excel_multi_lang(
-        &mut workbook,
-        &sheet_name,
-        tag_index,
+        &mut prepared.workbook,
+        &prepared.parsed_cfg.sheet_name,
+        prepared.parsed_cfg.tag_index,
         &lang_index_vec,
         &mut translation_rows,
     )?;
     log::debug!("translation row count: {}", translation_rows.len());
 
     // 处理XML文件
-    for (language_slot, p) in path_index_vec.iter().enumerate() {
+    for (language_slot, p) in prepared.targets.iter().enumerate() {
         let index = p.index;
         let path = &p.path;
         let lang = &p.lang;
@@ -318,12 +312,12 @@ pub fn quick_update(
         // 以便后续处理空值
         let res = if is_default_lang && replace_blank_with_default {
             // 处理默认语言,使用空default_valug_map
-            let res = update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg);
+            let res = update_xml_file(path, &write_map, &default_valug_map, &prepared.parsed_cfg);
             // 处理完后，默认语言的值会被复制到default_valug_map
             default_valug_map = write_map.clone();
             res
         } else {
-            update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg)
+            update_xml_file(path, &write_map, &default_valug_map, &prepared.parsed_cfg)
         };
         write_map.clear(); // 清空map
         match res {
@@ -334,9 +328,25 @@ pub fn quick_update(
             }
         }
     }
-    commit_staged_files(&staged_files)?;
+    Ok(staged_files)
+}
 
-    Ok(())
+pub fn convert(
+    cfg_json: &str,
+    excel_path: &str,
+    xml_dir_path: &str,
+    mode: ConversionMode,
+) -> Result<ConversionReport, Box<dyn Error>> {
+    let mut prepared = prepare_conversion(cfg_json, excel_path, xml_dir_path)?;
+    let staged_files = match mode {
+        ConversionMode::LowMemory => stage_low_memory(&mut prepared)?,
+        ConversionMode::Fast => stage_fast(&mut prepared)?,
+    };
+    let report = ConversionReport {
+        files_updated: staged_files.len(),
+    };
+    commit_staged_files(&staged_files)?;
+    Ok(report)
 }
 
 /// 更新XML文件

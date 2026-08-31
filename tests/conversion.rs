@@ -185,18 +185,22 @@ fn normal_and_quick_update_produce_the_same_files() {
     let normal_module = prepare_module(&fixture.path().join("normal"), true, ORIGINAL_XML);
     let quick_module = prepare_module(&fixture.path().join("quick"), true, ORIGINAL_XML);
 
-    excel_to_xml::update(
+    let normal_report = excel_to_xml::convert(
         config_json(),
         workbook.to_str().expect("workbook path"),
         normal_module.to_str().expect("normal module path"),
+        excel_to_xml::ConversionMode::LowMemory,
     )
     .expect("normal update succeeds");
-    excel_to_xml::quick_update(
+    let quick_report = excel_to_xml::convert(
         config_json(),
         workbook.to_str().expect("workbook path"),
         quick_module.to_str().expect("quick module path"),
+        excel_to_xml::ConversionMode::Fast,
     )
     .expect("quick update succeeds");
+    assert_eq!(normal_report.files_updated, 2);
+    assert_eq!(quick_report.files_updated, 2);
 
     let normal_default = read_strings(&normal_module, "values");
     let quick_default = read_strings(&quick_module, "values");
@@ -220,10 +224,11 @@ fn missing_language_file_is_an_error_without_modifying_existing_files() {
     write_workbook(&workbook);
     let module = prepare_module(fixture.path(), false, ORIGINAL_XML);
 
-    let error = excel_to_xml::quick_update(
+    let error = excel_to_xml::convert(
         config_json(),
         workbook.to_str().expect("workbook path"),
         module.to_str().expect("module path"),
+        excel_to_xml::ConversionMode::Fast,
     )
     .expect_err("missing zh file must fail");
 
@@ -239,14 +244,15 @@ fn malformed_second_xml_does_not_partially_update_the_first_file() {
     write_workbook(&workbook);
     let module = prepare_module(fixture.path(), true, MALFORMED_XML);
 
-    let error = excel_to_xml::quick_update(
+    let error = excel_to_xml::convert(
         config_json(),
         workbook.to_str().expect("workbook path"),
         module.to_str().expect("module path"),
+        excel_to_xml::ConversionMode::Fast,
     )
     .expect_err("malformed XML must fail");
 
-    assert!(error.contains("快速更新失败"), "{error}");
+    assert!(error.contains("转换失败"), "{error}");
     assert_eq!(read_strings(&module, "values"), ORIGINAL_XML);
     assert_eq!(read_strings(&module, "values-zh"), MALFORMED_XML);
     assert_no_sidecar_files(fixture.path());

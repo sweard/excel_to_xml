@@ -5,6 +5,8 @@ mod find_files;
 mod read_excel;
 mod write_xml;
 
+pub use write_xml::{ConversionMode, ConversionReport};
+
 /// 获取Excel文件中的工作表名称列表
 pub fn get_sheet_names(file_path: &str) -> Result<Vec<String>, String> {
     read_excel::open_excel_workbook(file_path)
@@ -17,13 +19,13 @@ pub fn get_default_cfg_json() -> String {
     config::CFG_JSON.to_string()
 }
 
-/// 更新XML文件
-pub fn update(cfg_json: &str, excel_path: &str, xml_dir_path: &str) -> Result<(), String> {
-    write_xml::update(cfg_json, excel_path, xml_dir_path).map_err(|err| format!("更新失败: {err}"))
-}
-
-/// 快速更新XML文件
-pub fn quick_update(cfg_json: &str, excel_path: &str, xml_dir_path: &str) -> Result<(), String> {
-    write_xml::quick_update(cfg_json, excel_path, xml_dir_path)
-        .map_err(|err| format!("快速更新失败: {err}"))
+/// 将Excel翻译内容转换到Android XML资源文件。
+pub fn convert(
+    cfg_json: &str,
+    excel_path: &str,
+    xml_dir_path: &str,
+    mode: ConversionMode,
+) -> Result<ConversionReport, String> {
+    write_xml::convert(cfg_json, excel_path, xml_dir_path, mode)
+        .map_err(|err| format!("转换失败: {err}"))
 }

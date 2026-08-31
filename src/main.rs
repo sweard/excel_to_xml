@@ -50,7 +50,12 @@ fn main() {
             "u" => {
                 // 统计耗时
                 let start_time = std::time::Instant::now();
-                match write_xml::update(&cfg_json, &excel_path, &xml_dir_path) {
+                match write_xml::convert(
+                    &cfg_json,
+                    &excel_path,
+                    &xml_dir_path,
+                    write_xml::ConversionMode::LowMemory,
+                ) {
                     Ok(_) => println!("更新成功"),
                     Err(e) => println!("更新失败: {:?}", e),
                 }
@@ -60,7 +65,12 @@ fn main() {
             "qu" => {
                 // 统计耗时
                 let start_time = std::time::Instant::now();
-                match write_xml::quick_update(&cfg_json, &excel_path, &xml_dir_path) {
+                match write_xml::convert(
+                    &cfg_json,
+                    &excel_path,
+                    &xml_dir_path,
+                    write_xml::ConversionMode::Fast,
+                ) {
                     Ok(_) => println!("更新成功"),
                     Err(e) => println!("更新失败: {:?}", e),
                 }
