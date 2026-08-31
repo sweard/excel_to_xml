@@ -1,0 +1,31 @@
+tests/conversion.rs
+  s_275a20cee1ca24::t_5da1542d063933 132-141,227-229
+src/write_xml.rs
+  s_275a20cee1ca24::t_50d93ffe482679 505-513,635
+  s_275a20cee1ca24::t_1dd39233606654 667-680
+  s_275a20cee1ca24::t_b17d0128001092 637
+  s_275a20cee1ca24::t_5da1542d063933 607
+  s_275a20cee1ca24::t_bc5dcd81943f69 53,230-237,242,247-248,280,290,329-335,340-346,383,415,430,476,527,567,572,608,636,638
+  s_275a20cee1ca24::t_7458bd1e188257 639-640
+  s_275a20cee1ca24::t_26ec448943b736 666
+Cargo.toml
+  s_275a20cee1ca24::t_bc5dcd81943f69 17
+Cargo.lock
+  s_275a20cee1ca24::t_97c34c4ddc1fa0 62,129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "81deccfe24ef3981ab742a6346a4942ed7b2fd84",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
