@@ -19,14 +19,11 @@ use quick_xml::{
 use regex::Regex;
 
 const XML_NAME: &str = "name";
-const XML_B_NAME: &[u8] = b"name";
 // 格式化相关常量
 const XML_NEWLINE: &str = "\n";
 const XML_INDENT: &str = "\n    ";
 const XML_STRING: &str = "string";
-const XML_B_STRING: &[u8] = b"string";
 const XML_RESOURCES: &str = "resources";
-const XML_B_RESOURCES: &[u8] = b"resources";
 
 #[derive(Default)]
 struct PathIndex {
@@ -444,14 +441,13 @@ fn update_xml_file(
             match xml_reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
                     open_element_depth += 1;
-                    if e.name().as_ref() == XML_B_STRING {
+                    if e.name().as_ref() == XML_STRING {
                         // 提取name属性
                         for attr in e.attributes().flatten() {
-                            if attr.key.as_ref() == XML_B_NAME {
-                                if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
-                                    if tag_value_map.contains_key(tag_name) {
-                                        current_tag_name = Some(tag_name.to_string());
-                                    }
+                            if attr.key.as_ref() == XML_NAME {
+                                let tag_name = attr.value.as_ref();
+                                if tag_value_map.contains_key(tag_name) {
+                                    current_tag_name = Some(tag_name.to_string());
                                 }
                             }
                         }
@@ -465,7 +461,7 @@ fn update_xml_file(
                             "XML 结束标签没有对应的开始标签".to_string(),
                         ));
                     }
-                    if e.name().as_ref() == XML_B_RESOURCES {
+                    if e.name().as_ref() == XML_RESOURCES {
                         // 在关闭resources标签前添加缺失的标签
                         add_missing_tags(
                             &mut xml_writer,
@@ -502,14 +498,9 @@ fn update_xml_file(
                             let write_value_empty = write_value.trim().is_empty();
                             let mut keep_original = false;
                             if write_value_empty {
-                                let original_text_empty = e
-                                    .decode()
+                                let original_text_empty = quick_xml::escape::unescape(e.as_ref())
                                     .ok()
-                                    .and_then(|decoded| {
-                                        quick_xml::escape::unescape(&decoded)
-                                            .ok()
-                                            .map(|text| text.trim().is_empty())
-                                    })
+                                    .map(|text| text.trim().is_empty())
                                     .unwrap_or(false);
                                 if write_value_empty && original_text_empty {
                                     // fixme 内容均为空，不做修改, 会有不换行的问题

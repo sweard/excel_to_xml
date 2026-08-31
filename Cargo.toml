@@ -14,7 +14,7 @@ calamine = "0.36.1"
 # serde = "1.0.215"
 serde_json = "1.0.151"
 # xml读写
-quick-xml = "0.38.4"
+quick-xml = "0.42.0"
 # 正则表达式
 regex = "1.13.1"
 # 日志门面
