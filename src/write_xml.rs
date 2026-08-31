@@ -210,7 +210,7 @@ pub fn quick_update(
     }
 
     // 处理XML文件
-    path_index_vec.iter().for_each(|p| {
+    for p in &path_index_vec {
         let index = p.index;
         let path = &p.path;
         let lang = &p.lang;
@@ -232,14 +232,11 @@ pub fn quick_update(
             update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg)
         };
         write_map.clear(); // 清空map
-        if res.is_err() {
-            log::error!(
-                "更新XML文件失败,lang index: {}, err: {:?}",
-                index,
-                res.err()
-            );
+        if let Err(err) = res {
+            log::error!("更新XML文件失败,lang index: {}, err: {:?}", index, err);
+            return Err(err);
         }
-    });
+    }
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
 
