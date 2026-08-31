@@ -1,0 +1,22 @@
+src/write_xml.rs
+  s_275a20cee1ca24::t_065b108892e262 33,68,71-72,164,175,177,184-185,215-219,226-227,654-655
+  s_275a20cee1ca24::t_9015103cab8630 5,65,70,220,225,358
+src/find_files.rs
+  s_275a20cee1ca24::t_54ad213ae4fb4f 1-5,7,9-28,30-38,41-48,51-69,71-85,88-121,123-201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c15c71e4d1959292f922b9e9eea64fdd472ccde1",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
