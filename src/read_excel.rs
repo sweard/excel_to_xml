@@ -39,11 +39,39 @@ struct RowSingleLangData {
 
 /// 读取Excel文件并解析
 /// 单行多语言数据结构
-#[derive(Default)]
 struct RowMultiLangData {
     row: Option<u32>,
     tag: Option<String>,
-    value: Option<HashMap<u32, String>>,
+    values: Vec<String>,
+}
+
+impl RowMultiLangData {
+    fn new(language_count: usize) -> Self {
+        Self {
+            row: None,
+            tag: None,
+            values: vec![String::new(); language_count],
+        }
+    }
+}
+
+pub(crate) struct TranslationRow {
+    pub(crate) tag: String,
+    pub(crate) values: Vec<String>,
+}
+
+fn push_translation_row(cur: &mut RowMultiLangData, rows: &mut Vec<TranslationRow>) {
+    let Some(tag) = cur.tag.take() else {
+        return;
+    };
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return;
+    }
+    rows.push(TranslationRow {
+        tag: tag.to_string(),
+        values: std::mem::take(&mut cur.values),
+    });
 }
 
 /**
@@ -214,17 +242,27 @@ pub fn process_excel_single_lang(
 /// * @param sheet_name 工作表名称
 /// * @param tag_index 标签列索引
 /// * @param lang_index_vec 语言列索引向量
-/// * @param tag_value_map 标签值映射
+/// * @param translation_rows 按语言槽位存储的翻译行
 /// * @return 解析是否成功
 pub fn process_excel_multi_lang(
     workbook: &mut Xlsx<BufReader<File>>,
     sheet_name: &str,
     tag_index: u32,
-    lang_index_vec: Vec<u32>,
-    tag_value_map: &mut HashMap<String, HashMap<u32, String>>,
+    lang_index_vec: &[u32],
+    translation_rows: &mut Vec<TranslationRow>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
-    let mut cur = RowMultiLangData::default();
+    let max_column = lang_index_vec
+        .iter()
+        .copied()
+        .chain(std::iter::once(tag_index))
+        .max()
+        .unwrap_or(tag_index) as usize;
+    let mut language_slot_by_column = vec![None; max_column + 1];
+    for (slot, column) in lang_index_vec.iter().copied().enumerate() {
+        language_slot_by_column[column as usize] = Some(slot);
+    }
+    let mut cur = RowMultiLangData::new(lang_index_vec.len());
 
     while let Some(cell) = cell_reader.next_cell()? {
         // 其余代码保持不变
@@ -233,20 +271,13 @@ pub fn process_excel_multi_lang(
         // 换行时处理上一行数据
         if let Some(prev_row) = cur.row {
             if row != prev_row {
-                if let Some(tag) = &cur.tag {
-                    let tag_trim = tag.trim();
-                    if !tag_trim.is_empty() {
-                        tag_value_map
-                            .insert(tag_trim.to_string(), cur.value.clone().unwrap_or_default());
-                    }
-                }
-                // 重置当前行数据
-                cur = RowMultiLangData::default();
+                push_translation_row(&mut cur, translation_rows);
+                cur = RowMultiLangData::new(lang_index_vec.len());
             }
         }
 
         cur.row = Some(row);
-        if row == 0 || (col != tag_index && !lang_index_vec.contains(&col)) {
+        if row == 0 {
             // 跳过表头行和非相关列
             continue;
         }
@@ -254,28 +285,14 @@ pub fn process_excel_multi_lang(
         if col == tag_index {
             // 处理tag
             cur.tag = cell.get_value().as_string();
-        } else if lang_index_vec.contains(&col) {
+        } else if let Some(Some(slot)) = language_slot_by_column.get(col as usize) {
             let raw = cell.get_value().as_string().unwrap_or("".to_owned());
-            match cur.value {
-                Some(ref mut map) => {
-                    map.insert(col, raw);
-                }
-                None => {
-                    let mut map = HashMap::new();
-                    map.insert(col, raw);
-                    cur.value = Some(map);
-                }
-            }
+            cur.values[*slot] = raw;
         }
     }
 
     // 处理最后一行数据
-    if let Some(tag) = &cur.tag {
-        let tag_trim = tag.trim();
-        if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), cur.value.unwrap_or_default());
-        }
-    }
+    push_translation_row(&mut cur, translation_rows);
 
     Ok(())
 }

@@ -286,36 +286,32 @@ pub fn quick_update(
     let tag_index = parsed_cfg.tag_index;
     let sheet_name = parsed_cfg.sheet_name.clone();
 
-    // 预分配一个HashMap，循环内复用
-    let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);
     let path_index_vec = resolve_target_paths(&parsed_cfg, &paths)?;
     let mut staged_files = Vec::with_capacity(path_index_vec.len());
     let default_lang = &parsed_cfg.default_lang;
     let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
     let lang_index_vec: Vec<u32> = path_index_vec.iter().map(|p| p.index).collect();
+    let mut translation_rows = Vec::new();
 
     read_excel::process_excel_multi_lang(
         &mut workbook,
         &sheet_name,
         tag_index,
-        lang_index_vec,
-        &mut tag_value_map,
+        &lang_index_vec,
+        &mut translation_rows,
     )?;
-    log::debug!("tag_value_map size: {}", tag_value_map.len());
+    log::debug!("translation row count: {}", translation_rows.len());
 
     // 处理XML文件
-    for p in &path_index_vec {
+    for (language_slot, p) in path_index_vec.iter().enumerate() {
         let index = p.index;
         let path = &p.path;
         let lang = &p.lang;
-        let mut write_map: HashMap<String, String> = HashMap::new();
-        tag_value_map.iter().for_each(|(tag, map)| {
-            write_map.insert(
-                tag.to_string(),
-                map.get(&index).cloned().unwrap_or_default(),
-            );
-        });
+        let mut write_map = HashMap::with_capacity(translation_rows.len());
+        for row in &translation_rows {
+            write_map.insert(row.tag.clone(), row.values[language_slot].clone());
+        }
 
         let is_default_lang = lang == default_lang;
         // 如果是默认语言，将tag_value_map的内容复制到default_valug_map
@@ -339,8 +335,6 @@ pub fn quick_update(
         }
     }
     commit_staged_files(&staged_files)?;
-    tag_value_map.clear(); // 清空map
-    tag_value_map.shrink_to_fit(); // 释放内存
 
     Ok(())
 }
