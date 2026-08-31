@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fs::{copy, remove_file, rename, File},
-    io::{self, BufReader, BufWriter},
+    io::{self, BufReader, BufWriter, Write},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -543,7 +543,10 @@ fn update_xml_file(
             buf.clear();
         }
     }
-    drop(xml_writer);
+    let mut buffered_writer = xml_writer.into_inner();
+    buffered_writer.flush()?;
+    buffered_writer.get_ref().sync_all()?;
+    drop(buffered_writer);
     drop(xml_reader);
     Ok(staged_file)
 }
