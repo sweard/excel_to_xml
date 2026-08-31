@@ -1,8 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
-    fs::{remove_file, rename, File},
-    io::{BufReader, BufWriter},
+    fs::{copy, remove_file, rename, File},
+    io::{self, BufReader, BufWriter},
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use crate::{config::ParsedCfg, find_files, read_excel};
@@ -28,6 +30,116 @@ struct PathIndex {
     path: String,
     index: u32,
     lang: String,
+}
+
+static STAGED_FILE_ID: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug)]
+struct StagedFile {
+    original_path: PathBuf,
+    temp_path: PathBuf,
+    backup_path: PathBuf,
+}
+
+impl StagedFile {
+    fn new(path: &str) -> Self {
+        let id = STAGED_FILE_ID.fetch_add(1, Ordering::Relaxed);
+        let suffix = format!("{}-{}", std::process::id(), id);
+        Self {
+            original_path: PathBuf::from(path),
+            temp_path: PathBuf::from(format!("{path}.e2xf-{suffix}.tmp")),
+            backup_path: PathBuf::from(format!("{path}.e2xf-{suffix}.bak")),
+        }
+    }
+}
+
+impl Drop for StagedFile {
+    fn drop(&mut self) {
+        if self.temp_path.exists() {
+            let _ = remove_file(&self.temp_path);
+        }
+    }
+}
+
+fn operation_error(message: String) -> Box<dyn Error> {
+    Box::new(io::Error::other(message))
+}
+
+fn remove_backups(staged_files: &[StagedFile]) {
+    for staged in staged_files {
+        if staged.backup_path.exists() {
+            if let Err(err) = remove_file(&staged.backup_path) {
+                log::warn!(
+                    "清理备份文件失败: {}, err: {}",
+                    staged.backup_path.display(),
+                    err
+                );
+            }
+        }
+    }
+}
+
+fn restore_backups(staged_files: &[StagedFile]) -> Vec<String> {
+    let mut errors = Vec::new();
+    for staged in staged_files.iter().rev() {
+        if !staged.backup_path.exists() {
+            continue;
+        }
+        if let Err(err) = copy(&staged.backup_path, &staged.original_path) {
+            errors.push(format!("{}: {}", staged.original_path.display(), err));
+        }
+    }
+    errors
+}
+
+#[cfg(not(windows))]
+fn promote_staged_file(staged: &StagedFile) -> io::Result<()> {
+    // 临时文件与原文件位于同一目录，rename 会原子替换目标文件。
+    rename(&staged.temp_path, &staged.original_path)
+}
+
+#[cfg(windows)]
+fn promote_staged_file(staged: &StagedFile) -> io::Result<()> {
+    // std::fs::rename 在 Windows 上不能覆盖已有文件，备份已在删除前创建。
+    remove_file(&staged.original_path)?;
+    rename(&staged.temp_path, &staged.original_path)
+}
+
+fn commit_staged_files(staged_files: &[StagedFile]) -> Result<(), Box<dyn Error>> {
+    // 所有文件均成功生成后再建立备份，避免解析/写入失败时触碰原文件。
+    for staged in staged_files {
+        if let Err(err) = copy(&staged.original_path, &staged.backup_path) {
+            remove_backups(staged_files);
+            return Err(operation_error(format!(
+                "创建备份文件失败: {}: {}",
+                staged.backup_path.display(),
+                err
+            )));
+        }
+    }
+
+    for (index, staged) in staged_files.iter().enumerate() {
+        if let Err(err) = promote_staged_file(staged) {
+            let rollback_errors = restore_backups(&staged_files[..=index]);
+            if rollback_errors.is_empty() {
+                remove_backups(staged_files);
+                return Err(operation_error(format!(
+                    "替换文件失败，已回滚: {}: {}",
+                    staged.original_path.display(),
+                    err
+                )));
+            }
+            return Err(operation_error(format!(
+                "替换文件失败且回滚不完整: {}: {}; 回滚失败: {}; 备份文件已保留",
+                staged.original_path.display(),
+                err,
+                rollback_errors.join("; ")
+            )));
+        }
+    }
+
+    remove_backups(staged_files);
+    Ok(())
 }
 
 /// 获取解析后的数据
@@ -86,6 +198,7 @@ pub fn update(
 
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
+    let mut staged_files = Vec::with_capacity(paths.len());
 
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
     let default_lang = &parsed_cfg.default_lang;
@@ -132,13 +245,24 @@ pub fn update(
         // 以便后续处理空值
         if is_default_lang && replace_blank_with_default {
             // 处理默认语言,使用空default_valug_map
-            update_xml_file(path, &tag_value_map, &default_valug_map, &parsed_cfg)?;
+            staged_files.push(update_xml_file(
+                path,
+                &tag_value_map,
+                &default_valug_map,
+                &parsed_cfg,
+            )?);
             default_valug_map = tag_value_map.clone();
         } else {
             // 处理XML文件
-            update_xml_file(path, &tag_value_map, &default_valug_map, &parsed_cfg)?;
+            staged_files.push(update_xml_file(
+                path,
+                &tag_value_map,
+                &default_valug_map,
+                &parsed_cfg,
+            )?);
         }
     }
+    commit_staged_files(&staged_files)?;
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
     Ok(())
@@ -170,6 +294,7 @@ pub fn quick_update(
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);
     let mut path_index_vec: Vec<PathIndex> = Vec::with_capacity(paths.len());
+    let mut staged_files = Vec::with_capacity(paths.len());
     let default_lang = &parsed_cfg.default_lang;
     let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
@@ -216,7 +341,10 @@ pub fn quick_update(
         let lang = &p.lang;
         let mut write_map: HashMap<String, String> = HashMap::new();
         tag_value_map.iter().for_each(|(tag, map)| {
-            write_map.insert(tag.to_string(), map.get(&index).cloned().unwrap_or_default());
+            write_map.insert(
+                tag.to_string(),
+                map.get(&index).cloned().unwrap_or_default(),
+            );
         });
 
         let is_default_lang = lang == default_lang;
@@ -232,11 +360,15 @@ pub fn quick_update(
             update_xml_file(path, &write_map, &default_valug_map, &parsed_cfg)
         };
         write_map.clear(); // 清空map
-        if let Err(err) = res {
-            log::error!("更新XML文件失败,lang index: {}, err: {:?}", index, err);
-            return Err(err);
+        match res {
+            Ok(staged) => staged_files.push(staged),
+            Err(err) => {
+                log::error!("更新XML文件失败,lang index: {}, err: {:?}", index, err);
+                return Err(err);
+            }
         }
     }
+    commit_staged_files(&staged_files)?;
     tag_value_map.clear(); // 清空map
     tag_value_map.shrink_to_fit(); // 释放内存
 
@@ -249,9 +381,8 @@ fn update_xml_file(
     tag_value_map: &HashMap<String, String>,
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // 创建临时文件路径
-    let temp_path = format!("{}.temp", path);
+) -> Result<StagedFile, Box<dyn std::error::Error>> {
+    let staged_file = StagedFile::new(path);
     // 正则表达式
     let regex_str = &parsed_cfg.regex;
     let regex = if !is_blank(regex_str) {
@@ -271,7 +402,7 @@ fn update_xml_file(
     let reader = BufReader::new(file);
     let mut xml_reader = quick_xml::Reader::from_reader(reader);
 
-    let output_file = File::create(&temp_path)?;
+    let output_file = File::create(&staged_file.temp_path)?;
     let writer = BufWriter::new(output_file);
     let mut xml_writer = Writer::new(writer);
 
@@ -413,11 +544,7 @@ fn update_xml_file(
     }
     drop(xml_writer);
     drop(xml_reader);
-    // 替换原文件
-    remove_file(path)?;
-    rename(temp_path, path)?;
-
-    Ok(())
+    Ok(staged_file)
 }
 
 /// 添加缺失的标签
