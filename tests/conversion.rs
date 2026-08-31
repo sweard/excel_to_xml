@@ -12,6 +12,8 @@ static TEST_DIR_ID: AtomicU64 = AtomicU64::new(0);
 const ORIGINAL_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="hello">Old</string>
+    <string name="fallback">Old fallback</string>
+    <string name="empty">Old empty</string>
 </resources>
 "#;
 
@@ -120,6 +122,13 @@ fn write_workbook(path: &Path) {
       <c r="B3" t="inlineStr"><is><t>Goodbye</t></is></c>
       <c r="C3" t="inlineStr"><is><t>再见</t></is></c>
     </row>
+    <row r="4">
+      <c r="A4" t="inlineStr"><is><t>fallback</t></is></c>
+      <c r="B4" t="inlineStr"><is><t>Fallback</t></is></c>
+    </row>
+    <row r="5">
+      <c r="A5" t="inlineStr"><is><t>empty</t></is></c>
+    </row>
   </sheetData>
 </worksheet>"#,
         ),
@@ -199,6 +208,8 @@ fn normal_and_quick_update_produce_the_same_files() {
     assert!(normal_default.contains("name=\"bye\">Goodbye</string>"));
     assert!(normal_zh.contains(">你好</string>"));
     assert!(normal_zh.contains("name=\"bye\">再见</string>"));
+    assert!(normal_zh.contains("name=\"fallback\">Fallback</string>"));
+    assert!(normal_zh.contains("name=\"empty\""));
     assert_no_sidecar_files(fixture.path());
 }
 

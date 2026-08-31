@@ -176,10 +176,11 @@ pub fn process_excel_single_lang(
         // 换行时处理上一行数据
         if let Some(prev_row) = cur.row {
             if row != prev_row {
-                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+                if let Some(tag) = &cur.tag {
                     let tag_trim = tag.trim();
                     if !tag_trim.is_empty() {
-                        tag_value_map.insert(tag_trim.to_string(), value.clone());
+                        tag_value_map
+                            .insert(tag_trim.to_string(), cur.value.clone().unwrap_or_default());
                     }
                 }
                 cur = RowSingleLangData::default();
@@ -201,10 +202,10 @@ pub fn process_excel_single_lang(
     }
 
     // 处理最后一行数据
-    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+    if let Some(tag) = &cur.tag {
         let tag_trim = tag.trim();
         if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), value.clone());
+            tag_value_map.insert(tag_trim.to_string(), cur.value.unwrap_or_default());
         }
     }
 
@@ -236,10 +237,11 @@ pub fn process_excel_multi_lang(
         // 换行时处理上一行数据
         if let Some(prev_row) = cur.row {
             if row != prev_row {
-                if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+                if let Some(tag) = &cur.tag {
                     let tag_trim = tag.trim();
                     if !tag_trim.is_empty() {
-                        tag_value_map.insert(tag_trim.to_string(), value.clone());
+                        tag_value_map
+                            .insert(tag_trim.to_string(), cur.value.clone().unwrap_or_default());
                     }
                 }
                 // 重置当前行数据
@@ -272,10 +274,10 @@ pub fn process_excel_multi_lang(
     }
 
     // 处理最后一行数据
-    if let (Some(tag), Some(value)) = (&cur.tag, &cur.value) {
+    if let Some(tag) = &cur.tag {
         let tag_trim = tag.trim();
         if !tag_trim.is_empty() {
-            tag_value_map.insert(tag_trim.to_string(), value.clone());
+            tag_value_map.insert(tag_trim.to_string(), cur.value.unwrap_or_default());
         }
     }
 
