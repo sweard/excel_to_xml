@@ -1,13 +1,16 @@
 use std::{
     collections::{HashMap, HashSet},
-    error::Error,
     fs::{copy, remove_file, rename, File},
     io::{self, BufReader, BufWriter, Write},
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::{config::ParsedCfg, find_files, read_excel};
+use crate::{
+    config::ParsedCfg,
+    error::{ConversionError, ConversionResult},
+    find_files, read_excel,
+};
 use calamine::Xlsx;
 use quick_xml::{
     events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event},
@@ -78,10 +81,6 @@ impl Drop for StagedFile {
     }
 }
 
-fn operation_error(message: String) -> Box<dyn Error> {
-    Box::new(io::Error::other(message))
-}
-
 fn remove_backups(staged_files: &[StagedFile]) {
     for staged in staged_files {
         if staged.backup_path.exists() {
@@ -122,12 +121,12 @@ fn promote_staged_file(staged: &StagedFile) -> io::Result<()> {
     rename(&staged.temp_path, &staged.original_path)
 }
 
-fn commit_staged_files(staged_files: &[StagedFile]) -> Result<(), Box<dyn Error>> {
+fn commit_staged_files(staged_files: &[StagedFile]) -> ConversionResult<()> {
     // 所有文件均成功生成后再建立备份，避免解析/写入失败时触碰原文件。
     for staged in staged_files {
         if let Err(err) = copy(&staged.original_path, &staged.backup_path) {
             remove_backups(staged_files);
-            return Err(operation_error(format!(
+            return Err(ConversionError::Transaction(format!(
                 "创建备份文件失败: {}: {}",
                 staged.backup_path.display(),
                 err
@@ -140,13 +139,13 @@ fn commit_staged_files(staged_files: &[StagedFile]) -> Result<(), Box<dyn Error>
             let rollback_errors = restore_backups(&staged_files[..=index]);
             if rollback_errors.is_empty() {
                 remove_backups(staged_files);
-                return Err(operation_error(format!(
+                return Err(ConversionError::Transaction(format!(
                     "替换文件失败，已回滚: {}: {}",
                     staged.original_path.display(),
                     err
                 )));
             }
-            return Err(operation_error(format!(
+            return Err(ConversionError::Transaction(format!(
                 "替换文件失败且回滚不完整: {}: {}; 回滚失败: {}; 备份文件已保留",
                 staged.original_path.display(),
                 err,
@@ -162,9 +161,9 @@ fn commit_staged_files(staged_files: &[StagedFile]) -> Result<(), Box<dyn Error>
 fn resolve_target_paths(
     parsed_cfg: &ParsedCfg,
     paths: &[String],
-) -> Result<Vec<PathIndex>, Box<dyn Error>> {
+) -> ConversionResult<Vec<PathIndex>> {
     if parsed_cfg.lang_index_map.is_empty() {
-        return Err(operation_error(
+        return Err(ConversionError::TargetResolution(
             "Excel 中没有匹配配置 langMap 的语言列".to_string(),
         ));
     }
@@ -179,7 +178,11 @@ fn resolve_target_paths(
         let path = paths
             .iter()
             .find(|path| path.ends_with(&end_point))
-            .ok_or_else(|| operation_error(format!("缺少语言 {lang} 的目标文件: {end_point}")))?;
+            .ok_or_else(|| {
+                ConversionError::TargetResolution(format!(
+                    "缺少语言 {lang} 的目标文件: {end_point}"
+                ))
+            })?;
         result.push(PathIndex {
             path: path.clone(),
             index: *index,
@@ -200,12 +203,11 @@ fn prepare_conversion(
     cfg_json: &str,
     excel_path: &str,
     xml_dir_path: &str,
-) -> Result<PreparedConversion, Box<dyn Error>> {
+) -> ConversionResult<PreparedConversion> {
     let mut workbook = read_excel::open_excel_workbook(excel_path)?;
     let parsed_cfg =
-        read_excel::parse_cfg_with_workbook(&mut workbook, cfg_json).map_err(|err| {
-            log::error!("解析配置时出错: {err}");
-            operation_error(format!("解析配置时出错: {err}"))
+        read_excel::parse_cfg_with_workbook(&mut workbook, cfg_json).inspect_err(|error| {
+            log::error!("解析配置时出错: {error}");
         })?;
     log::info!("解析配置成功: {:?}", parsed_cfg);
     let ignore_folders: Vec<&str> = parsed_cfg
@@ -216,7 +218,9 @@ fn prepare_conversion(
     let forder = find_files::find_target_folder(xml_dir_path, "res", &ignore_folders);
     if forder.is_none() {
         log::error!("未找到res文件夹");
-        return Err("未找到res文件夹".into());
+        return Err(ConversionError::ResourceDiscovery(
+            "未找到res文件夹".to_string(),
+        ));
     }
     let res_folder = forder.unwrap();
     log::info!("找到res文件夹: {}", res_folder);
@@ -229,7 +233,7 @@ fn prepare_conversion(
     })
 }
 
-fn stage_low_memory(prepared: &mut PreparedConversion) -> Result<Vec<StagedFile>, Box<dyn Error>> {
+fn stage_low_memory(prepared: &mut PreparedConversion) -> ConversionResult<Vec<StagedFile>> {
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
     let mut staged_files = Vec::with_capacity(prepared.targets.len());
@@ -280,7 +284,7 @@ fn stage_low_memory(prepared: &mut PreparedConversion) -> Result<Vec<StagedFile>
     Ok(staged_files)
 }
 
-fn stage_fast(prepared: &mut PreparedConversion) -> Result<Vec<StagedFile>, Box<dyn Error>> {
+fn stage_fast(prepared: &mut PreparedConversion) -> ConversionResult<Vec<StagedFile>> {
     let mut staged_files = Vec::with_capacity(prepared.targets.len());
     let default_lang = &prepared.parsed_cfg.default_lang;
     let replace_blank_with_default = prepared.parsed_cfg.replace_blank_with_default;
@@ -336,7 +340,7 @@ pub fn convert(
     excel_path: &str,
     xml_dir_path: &str,
     mode: ConversionMode,
-) -> Result<ConversionReport, Box<dyn Error>> {
+) -> ConversionResult<ConversionReport> {
     let mut prepared = prepare_conversion(cfg_json, excel_path, xml_dir_path)?;
     let staged_files = match mode {
         ConversionMode::LowMemory => stage_low_memory(&mut prepared)?,
@@ -355,7 +359,7 @@ fn update_xml_file(
     tag_value_map: &HashMap<String, String>,
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
-) -> Result<StagedFile, Box<dyn std::error::Error>> {
+) -> ConversionResult<StagedFile> {
     let staged_file = StagedFile::new(path);
     // 正则表达式
     let regex_str = &parsed_cfg.regex;
@@ -363,7 +367,7 @@ fn update_xml_file(
         match Regex::new(regex_str) {
             Ok(regex) => Some(regex),
             Err(e) => {
-                return Err(operation_error(format!("正则表达式错误: {e}")));
+                return Err(ConversionError::InvalidRegex(e.to_string()));
             }
         }
     } else {
@@ -447,7 +451,7 @@ fn update_xml_file(
 
                 Ok(Event::End(ref e)) => {
                     if open_element_depth == 0 {
-                        return Err(operation_error(
+                        return Err(ConversionError::Xml(
                             "XML 结束标签没有对应的开始标签".to_string(),
                         ));
                     }
@@ -516,7 +520,9 @@ fn update_xml_file(
 
                 Ok(Event::Eof) => {
                     if open_element_depth != 0 {
-                        return Err(operation_error("XML 文件在标签闭合前意外结束".to_string()));
+                        return Err(ConversionError::Xml(
+                            "XML 文件在标签闭合前意外结束".to_string(),
+                        ));
                     }
                     break;
                 }
@@ -542,7 +548,7 @@ fn add_missing_tags(
     updated_tags: &HashSet<String>,
     parsed_cfg: &ParsedCfg,
     regex: &Option<Regex>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> ConversionResult<()> {
     let disable_escape = parsed_cfg.disable_escape;
     let escape_only = &parsed_cfg.escape_only;
     let mut missing_tag_added = false;
@@ -583,7 +589,7 @@ fn write_text(
     value: &str,
     escape_only: &Vec<(String, String)>,
     regex: &Option<Regex>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> ConversionResult<()> {
     let value = if let Some(regex) = regex {
         // 使用正则表达式替换
         regex.replace_all(value, "").to_string()

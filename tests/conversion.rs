@@ -232,7 +232,14 @@ fn missing_language_file_is_an_error_without_modifying_existing_files() {
     )
     .expect_err("missing zh file must fail");
 
-    assert!(error.contains("缺少语言 zh 的目标文件"), "{error}");
+    assert!(matches!(
+        &error,
+        excel_to_xml::ConversionError::TargetResolution(_)
+    ));
+    assert!(
+        error.to_string().contains("缺少语言 zh 的目标文件"),
+        "{error}"
+    );
     assert_eq!(read_strings(&module, "values"), ORIGINAL_XML);
     assert_no_sidecar_files(fixture.path());
 }
@@ -252,7 +259,8 @@ fn malformed_second_xml_does_not_partially_update_the_first_file() {
     )
     .expect_err("malformed XML must fail");
 
-    assert!(error.contains("转换失败"), "{error}");
+    assert!(matches!(&error, excel_to_xml::ConversionError::Xml(_)));
+    assert!(error.to_string().contains("XML 错误"), "{error}");
     assert_eq!(read_strings(&module, "values"), ORIGINAL_XML);
     assert_eq!(read_strings(&module, "values-zh"), MALFORMED_XML);
     assert_no_sidecar_files(fixture.path());
@@ -266,5 +274,9 @@ fn sheet_name_errors_are_preserved() {
     let error = excel_to_xml::get_sheet_names(missing.to_str().expect("missing path"))
         .expect_err("missing workbook must fail");
 
-    assert!(error.contains("读取 Excel 工作表失败"), "{error}");
+    assert!(matches!(&error, excel_to_xml::ConversionError::Excel(_)));
+    assert!(
+        error.to_string().contains("读取 Excel 工作表失败"),
+        "{error}"
+    );
 }

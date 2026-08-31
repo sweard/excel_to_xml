@@ -4,6 +4,7 @@ use std::{
 };
 
 mod config;
+mod error;
 mod find_files;
 mod read_excel;
 mod write_xml;

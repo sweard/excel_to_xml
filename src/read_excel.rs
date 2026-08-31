@@ -1,32 +1,11 @@
-use crate::config::ParsedCfg;
+use crate::{
+    config::ParsedCfg,
+    error::{ConversionError, ConversionResult},
+};
 use calamine::{open_workbook, DataType, Reader, Xlsx};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
-
-/// 自定义错误类型，用于更清晰的错误处理
-#[derive(Debug)]
-pub enum ExcelError {
-    NoSheetsFound,
-    InvalidFirstLine,
-    TagNotFound(String),
-    CellConversionFailed(String),
-}
-
-impl fmt::Display for ExcelError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ExcelError::NoSheetsFound => write!(f, "未找到任何工作表"),
-            ExcelError::InvalidFirstLine => write!(f, "工作表为空"),
-            ExcelError::TagNotFound(tag) => write!(f, "未找到标签: {}", tag),
-            ExcelError::CellConversionFailed(msg) => write!(f, "Excel 格式错误: {}", msg),
-        }
-    }
-}
-
-impl Error for ExcelError {}
 
 /// 读取Excel文件并解析
 /// 单行单语言数据结构
@@ -83,17 +62,18 @@ fn push_translation_row(cur: &mut RowMultiLangData, rows: &mut Vec<TranslationRo
 pub fn parse_cfg_with_workbook(
     workbook: &mut Xlsx<BufReader<File>>,
     config_json: &str,
-) -> Result<ParsedCfg, Box<dyn Error>> {
+) -> ConversionResult<ParsedCfg> {
     log::info!("开始解析Excel配置: {}", config_json);
     // 解析配置JSON
-    let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
+    let mut parsed_cfg = ParsedCfg::from_json(config_json)
+        .map_err(|error| ConversionError::InvalidConfig(error.to_string()))?;
 
     let sheet_name = if parsed_cfg.sheet_name.is_empty() {
         workbook
             .sheet_names()
             .first()
             .cloned()
-            .ok_or_else(|| Box::new(ExcelError::NoSheetsFound))?
+            .ok_or_else(|| ConversionError::Excel("未找到任何工作表".to_string()))?
     } else {
         parsed_cfg.sheet_name.clone()
     };
@@ -105,7 +85,7 @@ pub fn parse_cfg_with_workbook(
     let mut cell_reader = match cell_reader {
         Ok(reader) => reader,
         Err(_) => {
-            return Err(Box::new(ExcelError::NoSheetsFound));
+            return Err(ConversionError::Excel("未找到指定工作表".to_string()));
         }
     };
 
@@ -121,16 +101,16 @@ pub fn parse_cfg_with_workbook(
         match cell.get_value().as_string() {
             Some(value) => first_row.push(value),
             None => {
-                return Err(Box::new(ExcelError::CellConversionFailed(format!(
+                return Err(ConversionError::Excel(format!(
                     "无法将单元格 {:?} 转换为字符串",
                     cell.get_position()
-                ))))
+                )))
             }
         }
     }
     if first_row.is_empty() {
         log::warn!("工作表为空或没有数据");
-        return Err(Box::new(ExcelError::InvalidFirstLine));
+        return Err(ConversionError::Excel("工作表为空".to_string()));
     }
     log::debug!("header_cells: {:?}", first_row);
 
@@ -145,18 +125,18 @@ pub fn parse_cfg_with_workbook(
 }
 
 /// 打开Excel工作簿
-pub fn open_excel_workbook(file_path: &str) -> Result<Xlsx<BufReader<File>>, Box<dyn Error>> {
-    let workbook: Xlsx<_> = open_workbook(file_path)?;
-    Ok(workbook)
+pub fn open_excel_workbook(file_path: &str) -> ConversionResult<Xlsx<BufReader<File>>> {
+    open_workbook(file_path)
+        .map_err(|error| ConversionError::Excel(format!("无法打开 {file_path}: {error}")))
 }
 
 /// 查找标签索引
-fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<u32, Box<dyn Error>> {
+fn find_tag_index(first_row: &[String], tag_name: &str) -> ConversionResult<u32> {
     first_row
         .iter()
         .position(|r| r == tag_name)
         .map(|pos| pos as u32)
-        .ok_or_else(|| Box::new(ExcelError::TagNotFound(tag_name.to_string())) as Box<dyn Error>)
+        .ok_or_else(|| ConversionError::Excel(format!("未找到标签: {tag_name}")))
 }
 
 /// 查找语言索引
@@ -189,7 +169,7 @@ pub fn process_excel_single_lang(
     tag_index: u32,
     lang_index: u32,
     tag_value_map: &mut HashMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> ConversionResult<()> {
     let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
     let mut cur = RowSingleLangData::default();
 
@@ -250,7 +230,7 @@ pub fn process_excel_multi_lang(
     tag_index: u32,
     lang_index_vec: &[u32],
     translation_rows: &mut Vec<TranslationRow>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> ConversionResult<()> {
     let mut cell_reader = workbook.worksheet_cells_reader(sheet_name)?;
     let max_column = lang_index_vec
         .iter()
