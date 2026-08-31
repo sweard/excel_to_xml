@@ -1,0 +1,21 @@
+Cargo.toml
+  s_275a20cee1ca24::t_d32dc49ce38ee2 12
+Cargo.lock
+  s_275a20cee1ca24::t_62c5cd31a90286 22,24,27,44,46,54,56,110,113,191-199,243-248,327,331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0a41df7709b132d7b3b8d2c96eafe6f35c70afdf",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
