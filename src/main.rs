@@ -70,7 +70,7 @@ fn main() {
             "i" => {
                 println!(
                     "当前配置\njson:{} \nexcel:{} \nxml dir:{}",
-                    &cfg_json, &excel_path, &xml_dir_path
+                    cfg_json, excel_path, xml_dir_path
                 );
             }
             "m" => {

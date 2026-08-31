@@ -198,7 +198,7 @@ fn get_parsed_data<'a>(
         .iter()
         .map(|s| s.as_str())
         .collect();
-    let forder = find_files::find_target_folder(&xml_dir_path, "res", &ignore_folders);
+    let forder = find_files::find_target_folder(xml_dir_path, "res", &ignore_folders);
     if forder.is_none() {
         log::error!("未找到res文件夹");
         return Err("未找到res文件夹".into());
@@ -206,7 +206,7 @@ fn get_parsed_data<'a>(
     let res_folder = forder.unwrap();
     log::info!("找到res文件夹: {}", res_folder);
     let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
-    return Ok((excel_path, parsed_cfg, paths));
+    Ok((excel_path, parsed_cfg, paths))
 }
 
 /// 准备需要写入的数据
@@ -224,7 +224,7 @@ pub fn update(
     let sheet_name = if parsed_cfg.sheet_name.is_empty() {
         workbook
             .sheet_names()
-            .get(0)
+            .first()
             .cloned()
             .ok_or("No sheets found")?
     } else {
@@ -300,7 +300,7 @@ pub fn quick_update(
     let sheet_name = if parsed_cfg.sheet_name.is_empty() {
         workbook
             .sheet_names()
-            .get(0)
+            .first()
             .cloned()
             .ok_or("No sheets found")?
     } else {
@@ -449,13 +449,11 @@ fn update_xml_file(
                     open_element_depth += 1;
                     if e.name().as_ref() == XML_B_STRING {
                         // 提取name属性
-                        for attr in e.attributes() {
-                            if let Ok(attr) = attr {
-                                if attr.key.as_ref() == XML_B_NAME {
-                                    if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
-                                        if tag_value_map.contains_key(tag_name) {
-                                            current_tag_name = Some(tag_name.to_string());
-                                        }
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == XML_B_NAME {
+                                if let Ok(tag_name) = std::str::from_utf8(attr.value.as_ref()) {
+                                    if tag_value_map.contains_key(tag_name) {
+                                        current_tag_name = Some(tag_name.to_string());
                                     }
                                 }
                             }

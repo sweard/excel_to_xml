@@ -56,7 +56,11 @@ pub fn parse_cfg_with_excel(
     file_path: &str,
     config_json: &str,
 ) -> Result<ParsedCfg, Box<dyn Error>> {
-    log::info!("开始解析Excel文件: {} config_json: {}", file_path, config_json);
+    log::info!(
+        "开始解析Excel文件: {} config_json: {}",
+        file_path,
+        config_json
+    );
     // 解析配置JSON
     let mut parsed_cfg = ParsedCfg::from_json(config_json)?;
 
@@ -66,13 +70,13 @@ pub fn parse_cfg_with_excel(
     let sheet_names = workbook.sheet_names();
     let mut sheet_name = &parsed_cfg.sheet_name;
     if sheet_name.is_empty() {
-         sheet_name = sheet_names
-        .get(0)
-        .ok_or_else(|| Box::new(ExcelError::NoSheetsFound))?
+        sheet_name = sheet_names
+            .first()
+            .ok_or_else(|| Box::new(ExcelError::NoSheetsFound))?
     }
 
     // 获取cell_reader迭代器
-    let cell_reader = workbook.worksheet_cells_reader(&sheet_name);
+    let cell_reader = workbook.worksheet_cells_reader(sheet_name);
     // 检查是否成功获取cell_reader
     let mut cell_reader = match cell_reader {
         Ok(reader) => reader,
@@ -121,8 +125,6 @@ pub fn open_excel_workbook(file_path: &str) -> Result<Xlsx<BufReader<File>>, Box
     let workbook: Xlsx<_> = open_workbook(file_path)?;
     Ok(workbook)
 }
-
-
 
 /// 查找标签索引
 fn find_tag_index(first_row: &[String], tag_name: &str) -> Result<u32, Box<dyn Error>> {
@@ -191,7 +193,7 @@ pub fn process_excel_single_lang(
         }
 
         if col == tag_index {
-            cur.tag = cell.get_value().as_string().map(String::from);
+            cur.tag = cell.get_value().as_string();
         } else if col == lang_index {
             let raw = cell.get_value().as_string().unwrap_or("".to_owned());
             cur.value = Some(raw);
@@ -253,7 +255,7 @@ pub fn process_excel_multi_lang(
 
         if col == tag_index {
             // 处理tag
-            cur.tag = cell.get_value().as_string().map(String::from);
+            cur.tag = cell.get_value().as_string();
         } else if lang_index_vec.contains(&col) {
             let raw = cell.get_value().as_string().unwrap_or("".to_owned());
             match cur.value {
