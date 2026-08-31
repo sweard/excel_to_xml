@@ -1,0 +1,25 @@
+src/write_xml.rs
+  s_275a20cee1ca24::t_41f9346b805990 297,363-368,371
+  s_275a20cee1ca24::t_e7079e58b007ed 4-7,35-64,66-143
+  s_275a20cee1ca24::t_2f97c5622577a5 65
+  s_275a20cee1ca24::t_fc901c8ce8140a 201,248-253,257-262,265
+  s_275a20cee1ca24::t_db334c04978e58 344-347
+  s_275a20cee1ca24::t_f36f409bdeea42 384-385,405,547
+  s_275a20cee1ca24::t_4915c502e10930 144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e591aa02255b7cda5de5cd47332180159f3d518a",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
