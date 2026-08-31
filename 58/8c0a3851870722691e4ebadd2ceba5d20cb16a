@@ -1,0 +1,22 @@
+src/read_excel.rs
+  s_275a20cee1ca24::t_59ac2cd3434ffa 179,182-183,205,208,240,243-244,277,280
+tests/conversion.rs
+  s_275a20cee1ca24::t_f0670155e77600 15-16
+  s_275a20cee1ca24::t_59ac2cd3434ffa 125-131,211-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "588c0a3851870722691e4ebadd2ceba5d20cb16a",
+  "prompts": {},
+  "sessions": {
+    "s_275a20cee1ca24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04616-af3e-7cb2-9801-f8a8aedb6292",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "fangjian <fangjian@wondertechlabs.com>"
+    }
+  }
+}
