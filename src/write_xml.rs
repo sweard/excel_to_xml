@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{copy, remove_file, rename, File},
     io::{self, BufReader, BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -30,7 +30,7 @@ const XML_B_RESOURCES: &[u8] = b"resources";
 
 #[derive(Default)]
 struct PathIndex {
-    path: String,
+    path: PathBuf,
     index: u32,
     lang: String,
 }
@@ -62,13 +62,14 @@ struct StagedFile {
 }
 
 impl StagedFile {
-    fn new(path: &str) -> Self {
+    fn new(path: &Path) -> Self {
         let id = STAGED_FILE_ID.fetch_add(1, Ordering::Relaxed);
         let suffix = format!("{}-{}", std::process::id(), id);
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
         Self {
-            original_path: PathBuf::from(path),
-            temp_path: PathBuf::from(format!("{path}.e2xf-{suffix}.tmp")),
-            backup_path: PathBuf::from(format!("{path}.e2xf-{suffix}.bak")),
+            original_path: path.to_path_buf(),
+            temp_path: path.with_file_name(format!("{file_name}.e2xf-{suffix}.tmp")),
+            backup_path: path.with_file_name(format!("{file_name}.e2xf-{suffix}.bak")),
         }
     }
 }
@@ -160,7 +161,7 @@ fn commit_staged_files(staged_files: &[StagedFile]) -> ConversionResult<()> {
 
 fn resolve_target_paths(
     parsed_cfg: &ParsedCfg,
-    paths: &[String],
+    paths: &[PathBuf],
 ) -> ConversionResult<Vec<PathIndex>> {
     if parsed_cfg.lang_index_map.is_empty() {
         return Err(ConversionError::TargetResolution(
@@ -171,16 +172,17 @@ fn resolve_target_paths(
     let mut result = Vec::with_capacity(parsed_cfg.lang_index_map.len());
     for (lang, index) in &parsed_cfg.lang_index_map {
         let end_point = if lang == &parsed_cfg.default_lang {
-            "values/strings.xml".to_string()
+            PathBuf::from("values/strings.xml")
         } else {
-            format!("values-{lang}/strings.xml")
+            PathBuf::from(format!("values-{lang}/strings.xml"))
         };
         let path = paths
             .iter()
             .find(|path| path.ends_with(&end_point))
             .ok_or_else(|| {
                 ConversionError::TargetResolution(format!(
-                    "缺少语言 {lang} 的目标文件: {end_point}"
+                    "缺少语言 {lang} 的目标文件: {}",
+                    end_point.display()
                 ))
             })?;
         result.push(PathIndex {
@@ -210,21 +212,19 @@ fn prepare_conversion(
             log::error!("解析配置时出错: {error}");
         })?;
     log::info!("解析配置成功: {:?}", parsed_cfg);
-    let ignore_folders: Vec<&str> = parsed_cfg
-        .ignore_folder
-        .iter()
-        .map(|s| s.as_str())
-        .collect();
-    let forder = find_files::find_target_folder(xml_dir_path, "res", &ignore_folders);
-    if forder.is_none() {
+    let folder = find_files::find_target_folder(
+        std::path::Path::new(xml_dir_path),
+        "res",
+        &parsed_cfg.ignore_folder,
+    )?;
+    let Some(res_folder) = folder else {
         log::error!("未找到res文件夹");
         return Err(ConversionError::ResourceDiscovery(
             "未找到res文件夹".to_string(),
         ));
-    }
-    let res_folder = forder.unwrap();
-    log::info!("找到res文件夹: {}", res_folder);
-    let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml");
+    };
+    log::info!("找到res文件夹: {}", res_folder.display());
+    let paths = find_files::collect_target_files(&res_folder, "values", "strings.xml")?;
     let targets = resolve_target_paths(&parsed_cfg, &paths)?;
     Ok(PreparedConversion {
         workbook,
@@ -355,7 +355,7 @@ pub fn convert(
 
 /// 更新XML文件
 fn update_xml_file(
-    path: &str,
+    path: &Path,
     tag_value_map: &HashMap<String, String>,
     default_valug_map: &HashMap<String, String>,
     parsed_cfg: &ParsedCfg,
@@ -651,8 +651,8 @@ mod tests {
         std::fs::write(&first_path, "old first").expect("write first original");
         std::fs::write(&second_path, "old second").expect("write second original");
 
-        let first = StagedFile::new(first_path.to_str().expect("first path"));
-        let second = StagedFile::new(second_path.to_str().expect("second path"));
+        let first = StagedFile::new(&first_path);
+        let second = StagedFile::new(&second_path);
         std::fs::write(&first.temp_path, "new first").expect("write first staged file");
         // second.temp_path deliberately does not exist, forcing promotion to fail
         // after the first file has already been replaced.
