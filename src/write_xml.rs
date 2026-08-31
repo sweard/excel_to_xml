@@ -142,6 +142,43 @@ fn commit_staged_files(staged_files: &[StagedFile]) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+fn resolve_target_paths(
+    parsed_cfg: &ParsedCfg,
+    paths: &[String],
+) -> Result<Vec<PathIndex>, Box<dyn Error>> {
+    if parsed_cfg.lang_index_map.is_empty() {
+        return Err(operation_error(
+            "Excel 中没有匹配配置 langMap 的语言列".to_string(),
+        ));
+    }
+
+    let mut result = Vec::with_capacity(parsed_cfg.lang_index_map.len());
+    for (lang, index) in &parsed_cfg.lang_index_map {
+        let end_point = if lang == &parsed_cfg.default_lang {
+            "values/strings.xml".to_string()
+        } else {
+            format!("values-{lang}/strings.xml")
+        };
+        let path = paths
+            .iter()
+            .find(|path| path.ends_with(&end_point))
+            .ok_or_else(|| operation_error(format!("缺少语言 {lang} 的目标文件: {end_point}")))?;
+        result.push(PathIndex {
+            path: path.clone(),
+            index: *index,
+            lang: lang.clone(),
+        });
+    }
+
+    if let Some(pos) = result
+        .iter()
+        .position(|item| item.lang == parsed_cfg.default_lang)
+    {
+        result.swap(0, pos);
+    }
+    Ok(result)
+}
+
 /// 获取解析后的数据
 /// - excel_path: Excel文件路径
 /// - parsed_cfg: 解析后的配置
@@ -151,12 +188,10 @@ fn get_parsed_data<'a>(
     excel_path: &'a str,
     xml_dir_path: &str,
 ) -> Result<(&'a str, ParsedCfg, Vec<String>), Box<dyn Error>> {
-    let cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json);
-    if cfg.is_err() {
-        log::error!("解析配置时出错: {:?}", cfg.err());
-        return Err("解析配置时出错".into());
-    }
-    let parsed_cfg = cfg.unwrap();
+    let parsed_cfg = read_excel::parse_cfg_with_excel(excel_path, cfg_json).map_err(|err| {
+        log::error!("解析配置时出错: {err}");
+        operation_error(format!("解析配置时出错: {err}"))
+    })?;
     log::info!("解析配置成功: {:?}", parsed_cfg);
     let ignore_folders: Vec<&str> = parsed_cfg
         .ignore_folder
@@ -198,42 +233,23 @@ pub fn update(
 
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map = HashMap::with_capacity(5000);
-    let mut staged_files = Vec::with_capacity(paths.len());
+    let path_index_vec = resolve_target_paths(&parsed_cfg, &paths)?;
+    let mut staged_files = Vec::with_capacity(path_index_vec.len());
 
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
     let default_lang = &parsed_cfg.default_lang;
     let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
 
-    let mut lang_index_map = parsed_cfg.lang_index_map.clone();
-    // 将默认语言移到第一个位置
-    if let Some(pos) = lang_index_map
-        .iter()
-        .position(|(lang, _)| &lang == &default_lang)
-    {
-        // 将默认语言换到第一个位置
-        lang_index_map.swap(0, pos);
-    }
-
     // 遍历语言索引映射
-    for (lang, index) in &lang_index_map {
+    for target in &path_index_vec {
+        let lang = &target.lang;
         let is_default_lang = lang == default_lang;
-        let end_point = if is_default_lang {
-            "values/strings.xml".to_string()
-        } else {
-            format!("values-{}/strings.xml", lang)
-        };
-
-        // 查找匹配的XML文件路径
-        let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
-            Some(path) => path,
-            None => continue, // 没找到对应语言的文件，跳过这个语言
-        };
 
         // 清空map，准备复用
         tag_value_map.clear();
 
         // 构建标签值映射 - 复用workbook、sheet_name和tag_value_map
-        let lang_index = *index;
+        let lang_index = target.index;
         read_excel::process_excel_single_lang(
             &mut workbook,
             &sheet_name,
@@ -246,7 +262,7 @@ pub fn update(
         if is_default_lang && replace_blank_with_default {
             // 处理默认语言,使用空default_valug_map
             staged_files.push(update_xml_file(
-                path,
+                &target.path,
                 &tag_value_map,
                 &default_valug_map,
                 &parsed_cfg,
@@ -255,7 +271,7 @@ pub fn update(
         } else {
             // 处理XML文件
             staged_files.push(update_xml_file(
-                path,
+                &target.path,
                 &tag_value_map,
                 &default_valug_map,
                 &parsed_cfg,
@@ -293,32 +309,11 @@ pub fn quick_update(
 
     // 预分配一个HashMap，循环内复用
     let mut tag_value_map: HashMap<String, HashMap<u32, String>> = HashMap::with_capacity(5000);
-    let mut path_index_vec: Vec<PathIndex> = Vec::with_capacity(paths.len());
-    let mut staged_files = Vec::with_capacity(paths.len());
+    let path_index_vec = resolve_target_paths(&parsed_cfg, &paths)?;
+    let mut staged_files = Vec::with_capacity(path_index_vec.len());
     let default_lang = &parsed_cfg.default_lang;
     let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
     let mut default_valug_map: HashMap<String, String> = HashMap::new();
-    // 遍历语言索引映射
-    for (lang, index) in &parsed_cfg.lang_index_map {
-        let is_default_lang = lang == default_lang;
-        let end_point = if is_default_lang {
-            "values/strings.xml".to_string()
-        } else {
-            format!("values-{}/strings.xml", lang)
-        };
-
-        // 查找匹配的XML文件路径
-        let path = match paths.iter().find(|path| path.ends_with(&end_point)) {
-            Some(path) => path,
-            None => continue, // 没找到对应语言的文件，跳过这个语言
-        };
-        let path_index = PathIndex {
-            path: path.to_string(),
-            index: *index,
-            lang: lang.to_string(),
-        };
-        path_index_vec.push(path_index);
-    }
     let lang_index_vec: Vec<u32> = path_index_vec.iter().map(|p| p.index).collect();
 
     read_excel::process_excel_multi_lang(
@@ -329,10 +324,6 @@ pub fn quick_update(
         &mut tag_value_map,
     )?;
     log::debug!("tag_value_map size: {}", tag_value_map.len());
-    if let Some(pos) = path_index_vec.iter().position(|p| &p.lang == default_lang) {
-        // 默认语言在生成时，已被移动到index 0
-        path_index_vec.swap(0, pos);
-    }
 
     // 处理XML文件
     for p in &path_index_vec {
@@ -389,8 +380,7 @@ fn update_xml_file(
         match Regex::new(regex_str) {
             Ok(regex) => Some(regex),
             Err(e) => {
-                log::warn!("正则表达式错误: {:?}", e);
-                None
+                return Err(operation_error(format!("正则表达式错误: {e}")));
             }
         }
     } else {
