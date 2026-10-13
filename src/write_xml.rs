@@ -371,6 +371,28 @@ pub fn convert(
     Ok(report)
 }
 
+fn string_replacement<'a>(
+    element: &BytesStart<'_>,
+    tag_value_map: &'a HashMap<String, String>,
+    default_valug_map: &'a HashMap<String, String>,
+    replace_blank_with_default: bool,
+) -> Option<(&'a String, &'a String)> {
+    if element.name().as_ref() != XML_STRING {
+        return None;
+    }
+    for attr in element.attributes().flatten() {
+        if attr.key.as_ref() == XML_NAME {
+            if let Some((tag, value)) = tag_value_map.get_key_value(attr.value.as_ref()) {
+                return Some((
+                    tag,
+                    get_write_value(tag, value, default_valug_map, replace_blank_with_default),
+                ));
+            }
+        }
+    }
+    None
+}
+
 /// 更新XML文件
 fn update_xml_file(
     path: &Path,
@@ -391,7 +413,6 @@ fn update_xml_file(
     let mut xml_writer = Writer::new(writer);
 
     let mut buf = Vec::with_capacity(4 * 1024);
-    let mut current_tag_name = None;
     let mut updated_tags = HashSet::new();
 
     let replace_blank_with_default = parsed_cfg.replace_blank_with_default;
@@ -437,22 +458,43 @@ fn update_xml_file(
     } else {
         // 更新XML文件
         let mut open_element_depth = 0usize;
+        let mut replacing_string_depth = None;
         loop {
             match xml_reader.read_event_into(&mut buf) {
                 Ok(Event::Start(ref e)) => {
                     open_element_depth += 1;
-                    if e.name().as_ref() == XML_STRING {
-                        // 提取name属性
-                        for attr in e.attributes().flatten() {
-                            if attr.key.as_ref() == XML_NAME {
-                                let tag_name = attr.value.as_ref();
-                                if tag_value_map.contains_key(tag_name) {
-                                    current_tag_name = Some(tag_name.to_string());
-                                }
-                            }
+                    if replacing_string_depth.is_none() {
+                        xml_writer.write_event(Event::Start(e.to_owned()))?;
+                        if let Some((tag, value)) = string_replacement(
+                            e,
+                            tag_value_map,
+                            default_valug_map,
+                            replace_blank_with_default,
+                        ) {
+                            write_text(disable_escape, &mut xml_writer, value, escape_only, regex)?;
+                            updated_tags.insert(tag.clone());
+                            // 替换整段内容，直到对应的结束标签；不依赖文本/实体/CDATA的拆分。
+                            replacing_string_depth = Some(open_element_depth);
                         }
                     }
-                    xml_writer.write_event(Event::Start(e.to_owned()))?;
+                }
+
+                Ok(Event::Empty(ref e)) => {
+                    if replacing_string_depth.is_none() {
+                        if let Some((tag, value)) = string_replacement(
+                            e,
+                            tag_value_map,
+                            default_valug_map,
+                            replace_blank_with_default,
+                        ) {
+                            xml_writer.write_event(Event::Start(e.to_owned()))?;
+                            write_text(disable_escape, &mut xml_writer, value, escape_only, regex)?;
+                            xml_writer.write_event(Event::End(BytesEnd::new(XML_STRING)))?;
+                            updated_tags.insert(tag.clone());
+                        } else {
+                            xml_writer.write_event(Event::Empty(e.to_owned()))?;
+                        }
+                    }
                 }
 
                 Ok(Event::End(ref e)) => {
@@ -461,69 +503,24 @@ fn update_xml_file(
                             "XML 结束标签没有对应的开始标签".to_string(),
                         ));
                     }
-                    if e.name().as_ref() == XML_RESOURCES {
-                        // 在关闭resources标签前添加缺失的标签
-                        add_missing_tags(
-                            &mut xml_writer,
-                            tag_value_map,
-                            default_valug_map,
-                            &updated_tags,
-                            parsed_cfg,
-                            regex,
-                        )?;
-                    }
-                    xml_writer.write_event(Event::End(e.to_owned()))?;
-                    open_element_depth -= 1;
-                }
-
-                Ok(Event::Text(e)) => {
-                    // 提前处理没有当前标签的情况
-                    if current_tag_name.is_none() {
-                        xml_writer.write_event(Event::Text(e.to_owned()))?;
-                        continue;
-                    }
-
-                    let tag_name = current_tag_name.as_ref().unwrap();
-                    updated_tags.insert(tag_name.to_string());
-
-                    // 更新文本内容
-                    match tag_value_map.get(tag_name) {
-                        Some(value) => {
-                            let write_value = get_write_value(
-                                tag_name,
-                                value,
+                    if replacing_string_depth == Some(open_element_depth) {
+                        xml_writer.write_event(Event::End(e.to_owned()))?;
+                        replacing_string_depth = None;
+                    } else if replacing_string_depth.is_none() {
+                        if e.name().as_ref() == XML_RESOURCES {
+                            // 在关闭resources标签前添加缺失的标签
+                            add_missing_tags(
+                                &mut xml_writer,
+                                tag_value_map,
                                 default_valug_map,
-                                replace_blank_with_default,
-                            );
-                            let write_value_empty = write_value.trim().is_empty();
-                            let mut keep_original = false;
-                            if write_value_empty {
-                                let original_text_empty = quick_xml::escape::unescape(e.as_ref())
-                                    .ok()
-                                    .map(|text| text.trim().is_empty())
-                                    .unwrap_or(false);
-                                if write_value_empty && original_text_empty {
-                                    // fixme 内容均为空，不做修改, 会有不换行的问题
-                                    keep_original = true;
-                                }
-                            }
-                            if keep_original {
-                                xml_writer.write_event(Event::Text(e.to_owned()))?;
-                            } else {
-                                write_text(
-                                    disable_escape,
-                                    &mut xml_writer,
-                                    write_value,
-                                    escape_only,
-                                    regex,
-                                )?;
-                            }
+                                &updated_tags,
+                                parsed_cfg,
+                                regex,
+                            )?;
                         }
-                        _ => {
-                            xml_writer.write_event(Event::Text(e.to_owned()))?;
-                        }
+                        xml_writer.write_event(Event::End(e.to_owned()))?;
                     }
-                    current_tag_name = None;
+                    open_element_depth -= 1;
                 }
 
                 Ok(Event::Eof) => {
@@ -534,7 +531,11 @@ fn update_xml_file(
                     }
                     break;
                 }
-                Ok(e) => xml_writer.write_event(e)?,
+                Ok(e) => {
+                    if replacing_string_depth.is_none() {
+                        xml_writer.write_event(e)?;
+                    }
+                }
                 Err(e) => return Err(e.into()),
             }
             buf.clear();

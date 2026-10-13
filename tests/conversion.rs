@@ -67,6 +67,10 @@ fn config_json() -> &'static str {
 }
 
 fn write_workbook(path: &Path) {
+    write_workbook_with_values(path, "Hello", "Goodbye");
+}
+
+fn write_workbook_with_values(path: &Path, hello: &str, bye: &str) {
     let file = File::create(path).expect("create workbook");
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
@@ -146,6 +150,19 @@ fn write_workbook(path: &Path) {
 
     for (name, content) in entries {
         zip.start_file(name, options).expect("start workbook entry");
+        let content = if name == "xl/worksheets/sheet1.xml" {
+            content
+                .replace(
+                    "<t>Hello</t>",
+                    &format!("<t>{}</t>", quick_xml::escape::escape(hello)),
+                )
+                .replace(
+                    "<t>Goodbye</t>",
+                    &format!("<t>{}</t>", quick_xml::escape::escape(bye)),
+                )
+        } else {
+            content.to_string()
+        };
         zip.write_all(content.as_bytes())
             .expect("write workbook entry");
     }
@@ -227,6 +244,146 @@ fn normal_and_quick_update_produce_the_same_files() {
     let first_new_tag = normal_zh.find("name=\"a_new\"").expect("a_new is written");
     let last_new_tag = normal_zh.find("name=\"z_new\"").expect("z_new is written");
     assert!(first_new_tag < last_new_tag);
+    assert_no_sidecar_files(fixture.path());
+}
+
+#[test]
+fn xml_string_bodies_are_replaced_once_in_both_modes() {
+    let fixture = TestDir::new("complete-string-replacement");
+    let workbook = fixture.path().join("translations.xlsx");
+    write_workbook_with_values(&workbook, "Firmware & Battery", "Touch & Go");
+    let untouched = r#"<string name="untouched" formatted="false">Keep &amp; &lt; &#x26; <![CDATA[raw & text]]><b>bold</b></string>"#;
+    let cases = [
+        ("entities", "Firmware &amp; Battery", "Touch &amp; Go"),
+        ("entity-only", "&amp;", "&#38;"),
+        ("leading-entity", "&amp; Battery", "&#x26; Go"),
+        (
+            "multiple-entities",
+            "A &lt; B &gt; C &amp; D",
+            "&#65;&#x42; &quot;C&quot; &apos;D&apos;",
+        ),
+        (
+            "cdata",
+            "<![CDATA[Firmware & Battery]]>",
+            "<![CDATA[Touch & Go]]>",
+        ),
+        (
+            "mixed-content",
+            "Old &amp; <![CDATA[tail]]><b>bold &gt; text</b>",
+            "<!--inside-->prefix<i>nested</i><?test instruction?>tail",
+        ),
+        ("empty", "", ""),
+        (
+            "already-duplicated",
+            "Firmware &amp; Battery&amp; Battery",
+            "Touch &amp; Go&amp; Go",
+        ),
+    ];
+
+    for (case, hello, bye) in cases {
+        for (mode_name, mode) in [
+            ("normal", excel_to_xml::ConversionMode::LowMemory),
+            ("fast", excel_to_xml::ConversionMode::Fast),
+        ] {
+            let root = fixture.path().join(case).join(mode_name);
+            let module = prepare_module(&root, true, ORIGINAL_XML);
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--outside-->
+    <string name="hello" translatable="false">{hello}</string>
+    <string name="bye" formatted="false">{bye}</string>
+    {untouched}
+    <string name="untouched_empty"/>
+</resources>
+"#
+            );
+            fs::write(module.join("res/values/strings.xml"), xml).expect("write source XML");
+            let mut first_result = None;
+            for pass in 1..=2 {
+                let report = excel_to_xml::convert(
+                    config_json(),
+                    workbook.to_str().expect("workbook path"),
+                    module.to_str().expect("module path"),
+                    mode,
+                )
+                .expect("conversion succeeds");
+                assert_eq!(report.files_updated, 2);
+                let output = read_strings(&module, "values");
+                assert!(
+                    output.contains(r#"<string name="hello" translatable="false">Firmware &amp; Battery</string>"#),
+                    "{case}/{mode_name}/pass-{pass}: {output}"
+                );
+                assert!(
+                    output.contains(
+                        r#"<string name="bye" formatted="false">Touch &amp; Go</string>"#
+                    ),
+                    "{case}/{mode_name}/pass-{pass}: {output}"
+                );
+                assert_eq!(output.matches("name=\"hello\"").count(), 1);
+                assert_eq!(output.matches("name=\"bye\"").count(), 1);
+                assert!(output.contains(untouched));
+                assert!(output.contains(r#"<string name="untouched_empty"/>"#));
+                assert!(output.contains("<!--outside-->"));
+                if let Some(first) = &first_result {
+                    assert_eq!(&output, first, "{case}/{mode_name} must be idempotent");
+                } else {
+                    first_result = Some(output);
+                }
+            }
+        }
+    }
+    assert_no_sidecar_files(fixture.path());
+}
+
+#[test]
+fn self_closing_strings_are_updated_without_duplicate_names() {
+    let fixture = TestDir::new("self-closing-strings");
+    let workbook = fixture.path().join("translations.xlsx");
+    write_workbook_with_values(&workbook, "Firmware & Battery", "Touch & Go");
+    for (mode_name, mode) in [
+        ("normal", excel_to_xml::ConversionMode::LowMemory),
+        ("fast", excel_to_xml::ConversionMode::Fast),
+    ] {
+        let module = prepare_module(&fixture.path().join(mode_name), true, ORIGINAL_XML);
+        fs::write(
+            module.join("res/values/strings.xml"),
+            r#"<resources>
+    <string name="hello" translatable="false"/>
+    <string name="bye" formatted="false"/>
+    <string name="empty" formatted="false"/>
+    <string name="untouched_empty"/>
+</resources>"#,
+        )
+        .expect("write self-closing strings");
+        let mut first_result = None;
+        for _ in 0..2 {
+            excel_to_xml::convert(
+                config_json(),
+                workbook.to_str().expect("workbook path"),
+                module.to_str().expect("module path"),
+                mode,
+            )
+            .expect("conversion succeeds");
+            let output = read_strings(&module, "values");
+            assert!(output.contains(
+                r#"<string name="hello" translatable="false">Firmware &amp; Battery</string>"#
+            ));
+            assert!(
+                output.contains(r#"<string name="bye" formatted="false">Touch &amp; Go</string>"#)
+            );
+            assert!(output.contains(r#"<string name="empty" formatted="false"></string>"#));
+            for tag in ["hello", "bye", "empty", "untouched_empty"] {
+                assert_eq!(output.matches(&format!("name=\"{tag}\"")).count(), 1);
+            }
+            assert!(output.contains(r#"<string name="untouched_empty"/>"#));
+            if let Some(first) = &first_result {
+                assert_eq!(&output, first);
+            } else {
+                first_result = Some(output);
+            }
+        }
+    }
     assert_no_sidecar_files(fixture.path());
 }
 
